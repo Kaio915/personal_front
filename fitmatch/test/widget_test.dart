@@ -18,6 +18,9 @@ void main() {
     expect(find.text('FitConnect'), findsOneWidget);
 
     // Verify that the main heading appears
-    expect(find.text('Conecte-se com os Melhores Personal Trainers'), findsOneWidget);
+    expect(
+      find.text('Conecte-se com os Melhores Personal Trainers'),
+      findsOneWidget,
+    );
   });
 }

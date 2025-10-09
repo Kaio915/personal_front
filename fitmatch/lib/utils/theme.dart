@@ -36,7 +36,7 @@ class AppTheme {
         onSurface: onSurface,
         onError: onError,
       ),
-      
+
       // Typography
       textTheme: const TextTheme(
         headlineLarge: TextStyle(
@@ -134,13 +134,8 @@ class AppTheme {
           foregroundColor: onPrimary,
           elevation: 0,
           padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8),
-          ),
-          textStyle: const TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w500,
-          ),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          textStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
         ),
       ),
 
@@ -148,14 +143,9 @@ class AppTheme {
         style: OutlinedButton.styleFrom(
           foregroundColor: primaryColor,
           padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8),
-          ),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
           side: const BorderSide(color: border),
-          textStyle: const TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w500,
-          ),
+          textStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
         ),
       ),
 
@@ -163,10 +153,7 @@ class AppTheme {
         style: TextButton.styleFrom(
           foregroundColor: primaryColor,
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          textStyle: const TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w500,
-          ),
+          textStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
         ),
       ),
 
@@ -194,11 +181,11 @@ class AppTheme {
           borderRadius: BorderRadius.circular(8),
           borderSide: const BorderSide(color: error, width: 2),
         ),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        hintStyle: const TextStyle(
-          color: textMuted,
-          fontSize: 14,
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 12,
         ),
+        hintStyle: const TextStyle(color: textMuted, fontSize: 14),
         labelStyle: const TextStyle(
           color: textMuted,
           fontSize: 14,
@@ -237,10 +224,7 @@ class AppTheme {
       ),
 
       // Icon Theme
-      iconTheme: const IconThemeData(
-        color: textMuted,
-        size: 24,
-      ),
+      iconTheme: const IconThemeData(color: textMuted, size: 24),
 
       // Divider Theme
       dividerTheme: const DividerThemeData(

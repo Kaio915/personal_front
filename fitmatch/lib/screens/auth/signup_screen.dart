@@ -16,13 +16,13 @@ class SignupScreen extends StatefulWidget {
 class _SignupScreenState extends State<SignupScreen> {
   final _formKey = GlobalKey<FormState>();
   final _pageController = PageController();
-  
+
   // Common fields
   final _nameController = TextEditingController();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
-  
+
   // Trainer fields
   final _specialtyController = TextEditingController();
   final _crefController = TextEditingController();
@@ -30,11 +30,11 @@ class _SignupScreenState extends State<SignupScreen> {
   final _bioController = TextEditingController();
   final _hourlyRateController = TextEditingController();
   final _cityController = TextEditingController();
-  
+
   // Student fields
   final _goalsController = TextEditingController();
   String _selectedFitnessLevel = 'Iniciante';
-  
+
   UserType _selectedUserType = UserType.student;
   bool _obscurePassword = true;
   bool _obscureConfirmPassword = true;
@@ -91,7 +91,10 @@ class _SignupScreenState extends State<SignupScreen> {
     }
 
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
-    final success = await authProvider.signup(userData, _passwordController.text);
+    final success = await authProvider.signup(
+      userData,
+      _passwordController.text,
+    );
 
     if (!mounted) return;
 
@@ -201,10 +204,7 @@ class _SignupScreenState extends State<SignupScreen> {
                       _currentPage = page;
                     });
                   },
-                  children: [
-                    _buildBasicInfoPage(),
-                    _buildSpecificInfoPage(),
-                  ],
+                  children: [_buildBasicInfoPage(), _buildSpecificInfoPage()],
                 ),
               ),
             ),
@@ -233,10 +233,14 @@ class _SignupScreenState extends State<SignupScreen> {
                                   width: 20,
                                   child: CircularProgressIndicator(
                                     strokeWidth: 2,
-                                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                    valueColor: AlwaysStoppedAnimation<Color>(
+                                      Colors.white,
+                                    ),
                                   ),
                                 )
-                              : Text(_currentPage < 1 ? 'Próximo' : 'Cadastrar'),
+                              : Text(
+                                  _currentPage < 1 ? 'Próximo' : 'Cadastrar',
+                                ),
                         );
                       },
                     ),
@@ -258,16 +262,16 @@ class _SignupScreenState extends State<SignupScreen> {
         children: [
           Text(
             'Informações Básicas',
-            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-              fontWeight: FontWeight.bold,
-            ),
+            style: Theme.of(
+              context,
+            ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 8),
           Text(
             'Preencha suas informações pessoais',
-            style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-              color: Colors.grey.shade600,
-            ),
+            style: Theme.of(
+              context,
+            ).textTheme.bodyLarge?.copyWith(color: Colors.grey.shade600),
           ),
           const SizedBox(height: 32),
 
@@ -297,8 +301,8 @@ class _SignupScreenState extends State<SignupScreen> {
                           child: Container(
                             decoration: BoxDecoration(
                               border: Border.all(
-                                color: _selectedUserType == UserType.student 
-                                    ? Theme.of(context).colorScheme.primary 
+                                color: _selectedUserType == UserType.student
+                                    ? Theme.of(context).colorScheme.primary
                                     : Colors.grey.shade300,
                                 width: 2,
                               ),
@@ -308,25 +312,30 @@ class _SignupScreenState extends State<SignupScreen> {
                             child: Row(
                               children: [
                                 Icon(
-                                  _selectedUserType == UserType.student 
-                                      ? Icons.radio_button_checked 
+                                  _selectedUserType == UserType.student
+                                      ? Icons.radio_button_checked
                                       : Icons.radio_button_unchecked,
-                                  color: _selectedUserType == UserType.student 
-                                      ? Theme.of(context).colorScheme.primary 
+                                  color: _selectedUserType == UserType.student
+                                      ? Theme.of(context).colorScheme.primary
                                       : Colors.grey,
                                 ),
                                 const SizedBox(width: 8),
                                 Expanded(
                                   child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: [
                                       Text(
                                         'Aluno',
-                                        style: Theme.of(context).textTheme.titleMedium,
+                                        style: Theme.of(
+                                          context,
+                                        ).textTheme.titleMedium,
                                       ),
                                       Text(
                                         'Busco personal trainer',
-                                        style: Theme.of(context).textTheme.bodySmall,
+                                        style: Theme.of(
+                                          context,
+                                        ).textTheme.bodySmall,
                                       ),
                                     ],
                                   ),
@@ -347,8 +356,8 @@ class _SignupScreenState extends State<SignupScreen> {
                           child: Container(
                             decoration: BoxDecoration(
                               border: Border.all(
-                                color: _selectedUserType == UserType.trainer 
-                                    ? Theme.of(context).colorScheme.primary 
+                                color: _selectedUserType == UserType.trainer
+                                    ? Theme.of(context).colorScheme.primary
                                     : Colors.grey.shade300,
                                 width: 2,
                               ),
@@ -358,25 +367,30 @@ class _SignupScreenState extends State<SignupScreen> {
                             child: Row(
                               children: [
                                 Icon(
-                                  _selectedUserType == UserType.trainer 
-                                      ? Icons.radio_button_checked 
+                                  _selectedUserType == UserType.trainer
+                                      ? Icons.radio_button_checked
                                       : Icons.radio_button_unchecked,
-                                  color: _selectedUserType == UserType.trainer 
-                                      ? Theme.of(context).colorScheme.primary 
+                                  color: _selectedUserType == UserType.trainer
+                                      ? Theme.of(context).colorScheme.primary
                                       : Colors.grey,
                                 ),
                                 const SizedBox(width: 8),
                                 Expanded(
                                   child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: [
                                       Text(
                                         'Personal Trainer',
-                                        style: Theme.of(context).textTheme.titleMedium,
+                                        style: Theme.of(
+                                          context,
+                                        ).textTheme.titleMedium,
                                       ),
                                       Text(
                                         'Ofereço serviços',
-                                        style: Theme.of(context).textTheme.bodySmall,
+                                        style: Theme.of(
+                                          context,
+                                        ).textTheme.bodySmall,
                                       ),
                                     ],
                                   ),
@@ -429,8 +443,9 @@ class _SignupScreenState extends State<SignupScreen> {
               if (value == null || value.trim().isEmpty) {
                 return 'Email é obrigatório';
               }
-              if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$')
-                  .hasMatch(value.trim())) {
+              if (!RegExp(
+                r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$',
+              ).hasMatch(value.trim())) {
                 return 'Email inválido';
               }
               return null;
@@ -516,21 +531,21 @@ class _SignupScreenState extends State<SignupScreen> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Text(
-            _selectedUserType == UserType.trainer 
+            _selectedUserType == UserType.trainer
                 ? 'Informações Profissionais'
                 : 'Seus Objetivos',
-            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-              fontWeight: FontWeight.bold,
-            ),
+            style: Theme.of(
+              context,
+            ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 8),
           Text(
-            _selectedUserType == UserType.trainer 
+            _selectedUserType == UserType.trainer
                 ? 'Conte-nos sobre sua experiência e qualificações'
                 : 'Ajude-nos a encontrar o personal trainer ideal para você',
-            style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-              color: Colors.grey.shade600,
-            ),
+            style: Theme.of(
+              context,
+            ).textTheme.bodyLarge?.copyWith(color: Colors.grey.shade600),
           ),
           const SizedBox(height: 32),
 
@@ -550,9 +565,9 @@ class _SignupScreenState extends State<SignupScreen> {
             child: Text(
               'Ao se cadastrar, você concorda com nossos Termos de Uso e Política de Privacidade. '
               '${_selectedUserType == UserType.trainer ? 'Seu cadastro passará por análise antes da aprovação.' : ''}',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: Colors.grey.shade600,
-              ),
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: Colors.grey.shade600),
               textAlign: TextAlign.center,
             ),
           ),
@@ -681,7 +696,8 @@ class _SignupScreenState extends State<SignupScreen> {
         maxLines: 3,
         decoration: const InputDecoration(
           labelText: 'Objetivos',
-          hintText: 'Ex: Perder peso, ganhar massa muscular, melhorar condicionamento',
+          hintText:
+              'Ex: Perder peso, ganhar massa muscular, melhorar condicionamento',
           prefixIcon: Icon(Icons.flag_outlined),
           alignLabelWithHint: true,
         ),
@@ -703,10 +719,7 @@ class _SignupScreenState extends State<SignupScreen> {
           prefixIcon: Icon(Icons.trending_up),
         ),
         items: ['Iniciante', 'Intermediário', 'Avançado']
-            .map((level) => DropdownMenuItem(
-                  value: level,
-                  child: Text(level),
-                ))
+            .map((level) => DropdownMenuItem(value: level, child: Text(level)))
             .toList(),
         onChanged: (value) {
           setState(() {

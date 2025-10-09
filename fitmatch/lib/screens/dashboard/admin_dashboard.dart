@@ -12,7 +12,8 @@ class AdminDashboard extends StatefulWidget {
   State<AdminDashboard> createState() => _AdminDashboardState();
 }
 
-class _AdminDashboardState extends State<AdminDashboard> with TickerProviderStateMixin {
+class _AdminDashboardState extends State<AdminDashboard>
+    with TickerProviderStateMixin {
   late TabController _tabController;
   List<PendingRegistration> _pendingRegistrations = [];
   bool _isLoading = false;
@@ -38,7 +39,7 @@ class _AdminDashboardState extends State<AdminDashboard> with TickerProviderStat
     try {
       // Mock pending registrations - in a real app this would come from a service
       await Future.delayed(const Duration(milliseconds: 500));
-      
+
       _pendingRegistrations = [
         PendingRegistration(
           id: '1',
@@ -50,7 +51,8 @@ class _AdminDashboardState extends State<AdminDashboard> with TickerProviderStat
           specialty: 'Musculação',
           cref: '123456-G/SP',
           experience: '5 anos',
-          bio: 'Personal trainer especializado em hipertrofia e condicionamento físico.',
+          bio:
+              'Personal trainer especializado em hipertrofia e condicionamento físico.',
           hourlyRate: 'R\$ 80,00',
           city: 'São Paulo, SP',
         ),
@@ -91,7 +93,7 @@ class _AdminDashboardState extends State<AdminDashboard> with TickerProviderStat
   @override
   Widget build(BuildContext context) {
     final user = context.watch<AuthProvider>().currentUser;
-    
+
     return Scaffold(
       appBar: AppBar(
         title: Text('Admin - ${user?.name ?? 'Administrador'}'),
@@ -150,11 +152,7 @@ class _AdminDashboardState extends State<AdminDashboard> with TickerProviderStat
       ),
       body: TabBarView(
         controller: _tabController,
-        children: [
-          _buildApprovalsTab(),
-          _buildUsersTab(),
-          _buildStatsTab(),
-        ],
+        children: [_buildApprovalsTab(), _buildUsersTab(), _buildStatsTab()],
       ),
     );
   }
@@ -197,7 +195,7 @@ class _AdminDashboardState extends State<AdminDashboard> with TickerProviderStat
 
   Widget _buildRegistrationCard(PendingRegistration registration) {
     final isTrainer = registration.userType == UserType.trainer;
-    
+
     return Card(
       margin: const EdgeInsets.only(bottom: 16),
       child: Padding(
@@ -209,7 +207,7 @@ class _AdminDashboardState extends State<AdminDashboard> with TickerProviderStat
               children: [
                 CircleAvatar(
                   radius: 30,
-                  backgroundColor: isTrainer 
+                  backgroundColor: isTrainer
                       ? Theme.of(context).colorScheme.primary
                       : Theme.of(context).colorScheme.secondary,
                   child: Text(
@@ -248,14 +246,18 @@ class _AdminDashboardState extends State<AdminDashboard> with TickerProviderStat
                               vertical: 4,
                             ),
                             decoration: BoxDecoration(
-                              color: isTrainer ? Colors.blue.shade100 : Colors.green.shade100,
+                              color: isTrainer
+                                  ? Colors.blue.shade100
+                                  : Colors.green.shade100,
                               borderRadius: BorderRadius.circular(12),
                             ),
                             child: Text(
                               isTrainer ? 'Personal Trainer' : 'Aluno',
                               style: TextStyle(
                                 fontSize: 12,
-                                color: isTrainer ? Colors.blue.shade800 : Colors.green.shade800,
+                                color: isTrainer
+                                    ? Colors.blue.shade800
+                                    : Colors.green.shade800,
                                 fontWeight: FontWeight.w500,
                               ),
                             ),
@@ -275,9 +277,9 @@ class _AdminDashboardState extends State<AdminDashboard> with TickerProviderStat
                 ),
               ],
             ),
-            
+
             const SizedBox(height: 16),
-            
+
             // Registration details
             if (isTrainer) ...[
               _buildDetailRow('Especialidade', registration.specialty ?? 'N/A'),
@@ -303,9 +305,9 @@ class _AdminDashboardState extends State<AdminDashboard> with TickerProviderStat
               _buildDetailRow('Objetivos', registration.goals ?? 'N/A'),
               _buildDetailRow('Nível', registration.fitnessLevel ?? 'N/A'),
             ],
-            
+
             const SizedBox(height: 16),
-            
+
             // Action buttons
             Row(
               children: [
@@ -353,12 +355,7 @@ class _AdminDashboardState extends State<AdminDashboard> with TickerProviderStat
               ),
             ),
           ),
-          Expanded(
-            child: Text(
-              value,
-              style: const TextStyle(fontSize: 14),
-            ),
-          ),
+          Expanded(child: Text(value, style: const TextStyle(fontSize: 14))),
         ],
       ),
     );
@@ -394,12 +391,12 @@ class _AdminDashboardState extends State<AdminDashboard> with TickerProviderStat
         children: [
           Text(
             'Estatísticas do Sistema',
-            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-              fontWeight: FontWeight.bold,
-            ),
+            style: Theme.of(
+              context,
+            ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 24),
-          
+
           // Stats cards
           Row(
             children: [
@@ -422,9 +419,9 @@ class _AdminDashboardState extends State<AdminDashboard> with TickerProviderStat
               ),
             ],
           ),
-          
+
           const SizedBox(height: 16),
-          
+
           Row(
             children: [
               Expanded(
@@ -446,9 +443,9 @@ class _AdminDashboardState extends State<AdminDashboard> with TickerProviderStat
               ),
             ],
           ),
-          
+
           const SizedBox(height: 24),
-          
+
           Card(
             child: Padding(
               padding: const EdgeInsets.all(16),
@@ -488,7 +485,12 @@ class _AdminDashboardState extends State<AdminDashboard> with TickerProviderStat
     );
   }
 
-  Widget _buildStatCard(String title, String value, IconData icon, Color color) {
+  Widget _buildStatCard(
+    String title,
+    String value,
+    IconData icon,
+    Color color,
+  ) {
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -530,7 +532,9 @@ class _AdminDashboardState extends State<AdminDashboard> with TickerProviderStat
             onPressed: () {
               Navigator.pop(context);
               setState(() {
-                _pendingRegistrations.removeWhere((reg) => reg.id == registration.id);
+                _pendingRegistrations.removeWhere(
+                  (reg) => reg.id == registration.id,
+                );
               });
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
@@ -561,7 +565,9 @@ class _AdminDashboardState extends State<AdminDashboard> with TickerProviderStat
             onPressed: () {
               Navigator.pop(context);
               setState(() {
-                _pendingRegistrations.removeWhere((reg) => reg.id == registration.id);
+                _pendingRegistrations.removeWhere(
+                  (reg) => reg.id == registration.id,
+                );
               });
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
@@ -584,7 +590,7 @@ class _AdminDashboardState extends State<AdminDashboard> with TickerProviderStat
   String _formatDate(DateTime date) {
     final now = DateTime.now();
     final difference = now.difference(date);
-    
+
     if (difference.inDays == 0) {
       if (difference.inHours == 0) {
         return '${difference.inMinutes} min atrás';

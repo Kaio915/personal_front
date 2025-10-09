@@ -9,17 +9,21 @@ class ConnectionService {
   Future<List<Connection>> getConnections() async {
     final prefs = await SharedPreferences.getInstance();
     final connectionsJson = prefs.getString(_connectionsKey);
-    
+
     if (connectionsJson == null) return [];
-    
+
     final connectionsList = jsonDecode(connectionsJson) as List;
-    return connectionsList.map((json) => Connection.fromJson(json as Map<String, dynamic>)).toList();
+    return connectionsList
+        .map((json) => Connection.fromJson(json as Map<String, dynamic>))
+        .toList();
   }
 
   // Save connections to storage
   Future<void> _saveConnections(List<Connection> connections) async {
     final prefs = await SharedPreferences.getInstance();
-    final connectionsJson = jsonEncode(connections.map((conn) => conn.toJson()).toList());
+    final connectionsJson = jsonEncode(
+      connections.map((conn) => conn.toJson()).toList(),
+    );
     await prefs.setString(_connectionsKey, connectionsJson);
   }
 
@@ -32,12 +36,15 @@ class ConnectionService {
   }) async {
     try {
       final connections = await getConnections();
-      
+
       // Check if connection already exists
-      final existingConnection = connections.where((conn) => 
-        conn.trainerId == trainerId && conn.studentId == studentId
-      ).firstOrNull;
-      
+      final existingConnection = connections
+          .where(
+            (conn) =>
+                conn.trainerId == trainerId && conn.studentId == studentId,
+          )
+          .firstOrNull;
+
       if (existingConnection != null) {
         return false; // Connection already exists
       }
@@ -54,7 +61,7 @@ class ConnectionService {
 
       connections.add(newConnection);
       await _saveConnections(connections);
-      
+
       return true;
     } catch (e) {
       return false;
@@ -65,18 +72,23 @@ class ConnectionService {
   Future<bool> acceptConnectionRequest(String connectionId) async {
     try {
       final connections = await getConnections();
-      final connectionIndex = connections.indexWhere((conn) => conn.id == connectionId);
-      
+      final connectionIndex = connections.indexWhere(
+        (conn) => conn.id == connectionId,
+      );
+
       if (connectionIndex == -1) return false;
-      
+
       final connection = connections[connectionIndex];
-      
+
       // Check if student already has an active connection
-      final studentActiveConnection = connections.where((conn) =>
-        conn.studentId == connection.studentId && 
-        conn.status == ConnectionStatus.accepted
-      ).firstOrNull;
-      
+      final studentActiveConnection = connections
+          .where(
+            (conn) =>
+                conn.studentId == connection.studentId &&
+                conn.status == ConnectionStatus.accepted,
+          )
+          .firstOrNull;
+
       if (studentActiveConnection != null) {
         return false; // Student already has an active connection
       }
@@ -88,7 +100,7 @@ class ConnectionService {
 
       connections[connectionIndex] = updatedConnection;
       await _saveConnections(connections);
-      
+
       return true;
     } catch (e) {
       return false;
@@ -99,10 +111,12 @@ class ConnectionService {
   Future<bool> rejectConnectionRequest(String connectionId) async {
     try {
       final connections = await getConnections();
-      final connectionIndex = connections.indexWhere((conn) => conn.id == connectionId);
-      
+      final connectionIndex = connections.indexWhere(
+        (conn) => conn.id == connectionId,
+      );
+
       if (connectionIndex == -1) return false;
-      
+
       final connection = connections[connectionIndex];
       final updatedConnection = connection.copyWith(
         status: ConnectionStatus.rejected,
@@ -111,7 +125,7 @@ class ConnectionService {
 
       connections[connectionIndex] = updatedConnection;
       await _saveConnections(connections);
-      
+
       return true;
     } catch (e) {
       return false;
@@ -122,17 +136,18 @@ class ConnectionService {
   Future<bool> disconnectConnection(String studentId, String trainerId) async {
     try {
       final connections = await getConnections();
-      final connectionIndex = connections.indexWhere((conn) =>
-        conn.studentId == studentId && 
-        conn.trainerId == trainerId &&
-        conn.status == ConnectionStatus.accepted
+      final connectionIndex = connections.indexWhere(
+        (conn) =>
+            conn.studentId == studentId &&
+            conn.trainerId == trainerId &&
+            conn.status == ConnectionStatus.accepted,
       );
-      
+
       if (connectionIndex == -1) return false;
-      
+
       connections.removeAt(connectionIndex);
       await _saveConnections(connections);
-      
+
       return true;
     } catch (e) {
       return false;
@@ -154,41 +169,53 @@ class ConnectionService {
   // Get connected trainer for a student (if any)
   Future<String?> getConnectedTrainerId(String studentId) async {
     final connections = await getConnections();
-    final activeConnection = connections.where((conn) =>
-      conn.studentId == studentId && 
-      conn.status == ConnectionStatus.accepted
-    ).firstOrNull;
-    
+    final activeConnection = connections
+        .where(
+          (conn) =>
+              conn.studentId == studentId &&
+              conn.status == ConnectionStatus.accepted,
+        )
+        .firstOrNull;
+
     return activeConnection?.trainerId;
   }
 
   // Get connected students for a trainer
   Future<List<String>> getConnectedStudentIds(String trainerId) async {
     final connections = await getConnections();
-    return connections.where((conn) =>
-      conn.trainerId == trainerId && 
-      conn.status == ConnectionStatus.accepted
-    ).map((conn) => conn.studentId).toList();
+    return connections
+        .where(
+          (conn) =>
+              conn.trainerId == trainerId &&
+              conn.status == ConnectionStatus.accepted,
+        )
+        .map((conn) => conn.studentId)
+        .toList();
   }
 
   // Rate trainer (student only)
-  Future<bool> rateTrainer(String studentId, String trainerId, int rating) async {
+  Future<bool> rateTrainer(
+    String studentId,
+    String trainerId,
+    int rating,
+  ) async {
     try {
       final connections = await getConnections();
-      final connectionIndex = connections.indexWhere((conn) =>
-        conn.studentId == studentId && 
-        conn.trainerId == trainerId &&
-        conn.status == ConnectionStatus.accepted
+      final connectionIndex = connections.indexWhere(
+        (conn) =>
+            conn.studentId == studentId &&
+            conn.trainerId == trainerId &&
+            conn.status == ConnectionStatus.accepted,
       );
-      
+
       if (connectionIndex == -1) return false;
-      
+
       final connection = connections[connectionIndex];
       final updatedConnection = connection.copyWith(rating: rating);
 
       connections[connectionIndex] = updatedConnection;
       await _saveConnections(connections);
-      
+
       return true;
     } catch (e) {
       return false;
@@ -198,15 +225,21 @@ class ConnectionService {
   // Get average rating for a trainer
   Future<double> getTrainerAverageRating(String trainerId) async {
     final connections = await getConnections();
-    final ratedConnections = connections.where((conn) =>
-      conn.trainerId == trainerId && 
-      conn.status == ConnectionStatus.accepted &&
-      conn.rating != null
-    ).toList();
-    
+    final ratedConnections = connections
+        .where(
+          (conn) =>
+              conn.trainerId == trainerId &&
+              conn.status == ConnectionStatus.accepted &&
+              conn.rating != null,
+        )
+        .toList();
+
     if (ratedConnections.isEmpty) return 0.0;
-    
-    final totalRating = ratedConnections.fold<int>(0, (sum, conn) => sum + (conn.rating ?? 0));
+
+    final totalRating = ratedConnections.fold<int>(
+      0,
+      (sum, conn) => sum + (conn.rating ?? 0),
+    );
     return totalRating / ratedConnections.length;
   }
 }

@@ -15,10 +15,7 @@ class HomeScreen extends StatelessWidget {
               decoration: BoxDecoration(
                 color: Theme.of(context).colorScheme.surface,
                 border: Border(
-                  bottom: BorderSide(
-                    color: Colors.grey.shade200,
-                    width: 1,
-                  ),
+                  bottom: BorderSide(color: Colors.grey.shade200, width: 1),
                 ),
               ),
               child: SafeArea(
@@ -37,9 +34,8 @@ class HomeScreen extends StatelessWidget {
                           const SizedBox(width: 8),
                           Text(
                             'FitConnect',
-                            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                              fontWeight: FontWeight.bold,
-                            ),
+                            style: Theme.of(context).textTheme.headlineSmall
+                                ?.copyWith(fontWeight: FontWeight.bold),
                           ),
                         ],
                       ),
@@ -97,7 +93,10 @@ class HomeScreen extends StatelessWidget {
                           context.goToLogin(userType: 'student');
                         },
                         style: ElevatedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 32,
+                            vertical: 16,
+                          ),
                         ),
                         child: const Text('Login como Aluno'),
                       ),
@@ -106,7 +105,10 @@ class HomeScreen extends StatelessWidget {
                           context.goToLogin(userType: 'trainer');
                         },
                         style: OutlinedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 32,
+                            vertical: 16,
+                          ),
                         ),
                         child: const Text('Login como Personal Trainer'),
                       ),
@@ -130,22 +132,58 @@ class HomeScreen extends StatelessWidget {
                         // Desktop layout
                         return Row(
                           children: [
-                            Expanded(child: _buildFeatureCard(context, Icons.search, 'Busca Inteligente', 'Encontre personal trainers por especialidade, localização e disponibilidade')),
+                            Expanded(
+                              child: _buildFeatureCard(
+                                context,
+                                Icons.search,
+                                'Busca Inteligente',
+                                'Encontre personal trainers por especialidade, localização e disponibilidade',
+                              ),
+                            ),
                             const SizedBox(width: 24),
-                            Expanded(child: _buildFeatureCard(context, Icons.people, 'Conexão Direta', 'Conecte-se diretamente com profissionais qualificados e certificados')),
+                            Expanded(
+                              child: _buildFeatureCard(
+                                context,
+                                Icons.people,
+                                'Conexão Direta',
+                                'Conecte-se diretamente com profissionais qualificados e certificados',
+                              ),
+                            ),
                             const SizedBox(width: 24),
-                            Expanded(child: _buildFeatureCard(context, Icons.trending_up, 'Acompanhamento', 'Gerencie suas conexões e acompanhe seu progresso em um só lugar')),
+                            Expanded(
+                              child: _buildFeatureCard(
+                                context,
+                                Icons.trending_up,
+                                'Acompanhamento',
+                                'Gerencie suas conexões e acompanhe seu progresso em um só lugar',
+                              ),
+                            ),
                           ],
                         );
                       } else {
                         // Mobile layout
                         return Column(
                           children: [
-                            _buildFeatureCard(context, Icons.search, 'Busca Inteligente', 'Encontre personal trainers por especialidade, localização e disponibilidade'),
+                            _buildFeatureCard(
+                              context,
+                              Icons.search,
+                              'Busca Inteligente',
+                              'Encontre personal trainers por especialidade, localização e disponibilidade',
+                            ),
                             const SizedBox(height: 24),
-                            _buildFeatureCard(context, Icons.people, 'Conexão Direta', 'Conecte-se diretamente com profissionais qualificados e certificados'),
+                            _buildFeatureCard(
+                              context,
+                              Icons.people,
+                              'Conexão Direta',
+                              'Conecte-se diretamente com profissionais qualificados e certificados',
+                            ),
                             const SizedBox(height: 24),
-                            _buildFeatureCard(context, Icons.trending_up, 'Acompanhamento', 'Gerencie suas conexões e acompanhe seu progresso em um só lugar'),
+                            _buildFeatureCard(
+                              context,
+                              Icons.trending_up,
+                              'Acompanhamento',
+                              'Gerencie suas conexões e acompanhe seu progresso em um só lugar',
+                            ),
                           ],
                         );
                       }
@@ -179,7 +217,9 @@ class HomeScreen extends StatelessWidget {
                   Text(
                     'Cadastre-se agora e dê o primeiro passo para alcançar seus objetivos',
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      color: Theme.of(context).colorScheme.onPrimary.withValues(alpha: 0.9),
+                      color: Theme.of(
+                        context,
+                      ).colorScheme.onPrimary.withValues(alpha: 0.9),
                     ),
                     textAlign: TextAlign.center,
                   ),
@@ -191,7 +231,10 @@ class HomeScreen extends StatelessWidget {
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Theme.of(context).colorScheme.surface,
                       foregroundColor: Theme.of(context).colorScheme.primary,
-                      padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 32,
+                        vertical: 16,
+                      ),
                     ),
                     child: const Text('Criar Conta Gratuita'),
                   ),
@@ -204,31 +247,32 @@ class HomeScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildFeatureCard(BuildContext context, IconData icon, String title, String description) {
+  Widget _buildFeatureCard(
+    BuildContext context,
+    IconData icon,
+    String title,
+    String description,
+  ) {
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(24.0),
         child: Column(
           children: [
-            Icon(
-              icon,
-              size: 48,
-              color: Theme.of(context).colorScheme.primary,
-            ),
+            Icon(icon, size: 48, color: Theme.of(context).colorScheme.primary),
             const SizedBox(height: 16),
             Text(
               title,
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.w600,
-              ),
+              style: Theme.of(
+                context,
+              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w600),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 12),
             Text(
               description,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: Colors.grey.shade600,
-              ),
+              style: Theme.of(
+                context,
+              ).textTheme.bodyMedium?.copyWith(color: Colors.grey.shade600),
               textAlign: TextAlign.center,
             ),
           ],
