@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
 import '../../providers/auth_provider.dart';
-import '../../providers/connection_provider.dart';
 import '../../providers/chat_provider.dart';
-import '../../models/connection.dart';
+import '../../models/user.dart';
+import '../../services/trainer_service.dart';
+import '../../services/connection_service.dart';
+import '../../services/auth_service.dart';
 
 class StudentDashboard extends StatefulWidget {
   const StudentDashboard({super.key});
@@ -17,6 +19,13 @@ class _StudentDashboardState extends State<StudentDashboard> with TickerProvider
   late TabController _tabController;
   final _searchController = TextEditingController();
   String _searchQuery = '';
+  final TrainerService _trainerService = TrainerService();
+  final ConnectionService _connectionService = ConnectionService();
+  List<User> _trainers = [];
+  bool _isLoadingTrainers = false;
+  List<ConnectionModel> _acceptedConnections = [];
+  bool _isLoadingConnections = false;
+  Map<int, Map<String, String>> _trainerInfo = {};
 
   @override
   void initState() {
@@ -25,12 +34,77 @@ class _StudentDashboardState extends State<StudentDashboard> with TickerProvider
     
     // Load initial data
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<ConnectionProvider>().loadConnections();
       final user = context.read<AuthProvider>().currentUser;
       if (user != null) {
         context.read<ChatProvider>().initialize(user.id);
+        _loadConnections();
       }
+      _loadTrainers();
     });
+  }
+
+  Future<void> _loadConnections() async {
+    final currentUser = context.read<AuthProvider>().currentUser;
+    if (currentUser == null) return;
+
+    setState(() {
+      _isLoadingConnections = true;
+    });
+
+    try {
+      final studentId = int.parse(currentUser.id);
+      
+      // Carregar todas as conexões aceitas
+      final all = await _connectionService.getStudentConnections(studentId);
+      final accepted = all.where((c) => c.status == ConnectionStatusEnum.accepted).toList();
+      
+      // Carregar informações dos trainers
+      final authService = AuthService();
+      for (var conn in accepted) {
+        if (!_trainerInfo.containsKey(conn.trainerId)) {
+          try {
+            final trainer = await authService.getUserById(conn.trainerId);
+            if (trainer != null) {
+              _trainerInfo[conn.trainerId] = {
+                'name': trainer.name,
+                'email': trainer.email,
+              };
+            }
+          } catch (e) {
+            print('Erro ao carregar info do trainer ${conn.trainerId}: $e');
+          }
+        }
+      }
+      
+      setState(() {
+        _acceptedConnections = accepted;
+        _isLoadingConnections = false;
+      });
+    } catch (e) {
+      print('Erro ao carregar conexões: $e');
+      setState(() {
+        _isLoadingConnections = false;
+      });
+    }
+  }
+
+  Future<void> _loadTrainers() async {
+    setState(() {
+      _isLoadingTrainers = true;
+    });
+
+    try {
+      final trainers = await _trainerService.getApprovedTrainers();
+      setState(() {
+        _trainers = trainers;
+        _isLoadingTrainers = false;
+      });
+    } catch (e) {
+      print('Erro ao carregar trainers: $e');
+      setState(() {
+        _isLoadingTrainers = false;
+      });
+    }
   }
 
   @override
@@ -182,55 +256,38 @@ class _StudentDashboardState extends State<StudentDashboard> with TickerProvider
   }
 
   Widget _buildTrainersList() {
-    // Mock trainers data - in a real app this would come from a service
-    final trainers = [
-      {
-        'name': 'João Silva',
-        'specialty': 'Musculação',
-        'experience': '5 anos',
-        'rating': 4.8,
-        'hourlyRate': 'R\$ 80,00',
-        'city': 'São Paulo, SP',
-        'bio': 'Personal trainer especializado em hipertrofia e condicionamento físico.',
-      },
-      {
-        'name': 'Maria Santos',
-        'specialty': 'Funcional',
-        'experience': '3 anos',
-        'rating': 4.9,
-        'hourlyRate': 'R\$ 75,00',
-        'city': 'Rio de Janeiro, RJ',
-        'bio': 'Focada em treinamento funcional e reabilitação.',
-      },
-      {
-        'name': 'Carlos Oliveira',
-        'specialty': 'Pilates',
-        'experience': '7 anos',
-        'rating': 4.7,
-        'hourlyRate': 'R\$ 90,00',
-        'city': 'Belo Horizonte, MG',
-        'bio': 'Instrutor de Pilates com formação em fisioterapia.',
-      },
-    ];
+    if (_isLoadingTrainers) {
+      return const Center(child: CircularProgressIndicator());
+    }
 
-    final filteredTrainers = trainers.where((trainer) {
+    // Filtrar trainers por query de busca
+    final filteredTrainers = _trainers.where((trainer) {
       if (_searchQuery.isEmpty) return true;
-      return (trainer['name'] as String).toLowerCase().contains(_searchQuery.toLowerCase()) ||
-             (trainer['specialty'] as String).toLowerCase().contains(_searchQuery.toLowerCase()) ||
-             (trainer['city'] as String).toLowerCase().contains(_searchQuery.toLowerCase());
+      return trainer.name.toLowerCase().contains(_searchQuery.toLowerCase()) ||
+             trainer.email.toLowerCase().contains(_searchQuery.toLowerCase());
     }).toList();
 
     if (filteredTrainers.isEmpty) {
-      return const Center(
+      return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.search_off, size: 64, color: Colors.grey),
-            SizedBox(height: 16),
+            const Icon(Icons.search_off, size: 64, color: Colors.grey),
+            const SizedBox(height: 16),
             Text(
-              'Nenhum personal trainer encontrado',
-              style: TextStyle(fontSize: 18, color: Colors.grey),
+              _trainers.isEmpty
+                  ? 'Nenhum personal trainer cadastrado ainda'
+                  : 'Nenhum personal trainer encontrado',
+              style: const TextStyle(fontSize: 18, color: Colors.grey),
             ),
+            if (_trainers.isEmpty) ...[
+              const SizedBox(height: 8),
+              const Text(
+                'Aguarde enquanto personal trainers se cadastram no sistema',
+                style: TextStyle(color: Colors.grey),
+                textAlign: TextAlign.center,
+              ),
+            ],
           ],
         ),
       );
@@ -241,12 +298,12 @@ class _StudentDashboardState extends State<StudentDashboard> with TickerProvider
       itemCount: filteredTrainers.length,
       itemBuilder: (context, index) {
         final trainer = filteredTrainers[index];
-        return _buildTrainerCard(trainer);
+        return _buildTrainerCardFromUser(trainer);
       },
     );
   }
 
-  Widget _buildTrainerCard(Map<String, dynamic> trainer) {
+  Widget _buildTrainerCardFromUser(User trainer) {
     return Card(
       margin: const EdgeInsets.only(bottom: 16),
       child: Padding(
@@ -260,7 +317,7 @@ class _StudentDashboardState extends State<StudentDashboard> with TickerProvider
                   radius: 30,
                   backgroundColor: Theme.of(context).colorScheme.primary,
                   child: Text(
-                    trainer['name']!.substring(0, 1).toUpperCase(),
+                    trainer.name.substring(0, 1).toUpperCase(),
                     style: const TextStyle(
                       fontSize: 20,
                       fontWeight: FontWeight.bold,
@@ -274,14 +331,14 @@ class _StudentDashboardState extends State<StudentDashboard> with TickerProvider
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        trainer['name']!,
+                        trainer.name,
                         style: const TextStyle(
                           fontSize: 18,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
                       Text(
-                        trainer['specialty']!,
+                        'Personal Trainer',
                         style: TextStyle(
                           fontSize: 14,
                           color: Colors.grey.shade600,
@@ -290,70 +347,32 @@ class _StudentDashboardState extends State<StudentDashboard> with TickerProvider
                       Row(
                         children: [
                           Icon(
-                            Icons.star,
+                            Icons.verified,
                             size: 16,
-                            color: Colors.amber.shade600,
+                            color: Colors.green.shade600,
                           ),
                           const SizedBox(width: 4),
                           Text(
-                            trainer['rating']!.toString(),
-                            style: const TextStyle(fontSize: 14),
-                          ),
-                          const SizedBox(width: 16),
-                          Icon(
-                            Icons.work_outline,
-                            size: 16,
-                            color: Colors.grey.shade600,
-                          ),
-                          const SizedBox(width: 4),
-                          Text(
-                            trainer['experience']!,
-                            style: const TextStyle(fontSize: 14),
+                            'Aprovado',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.green.shade600,
+                            ),
                           ),
                         ],
                       ),
                     ],
                   ),
                 ),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Text(
-                      trainer['hourlyRate']!,
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const Text('/hora', style: TextStyle(fontSize: 12)),
-                  ],
-                ),
               ],
             ),
             const SizedBox(height: 12),
-            Row(
-              children: [
-                Icon(
-                  Icons.location_on_outlined,
-                  size: 16,
-                  color: Colors.grey.shade600,
-                ),
-                const SizedBox(width: 4),
-                Text(
-                  trainer['city']!,
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: Colors.grey.shade600,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
             Text(
-              trainer['bio']!,
-              style: const TextStyle(fontSize: 14),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
+              trainer.email,
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.grey.shade600,
+              ),
             ),
             const SizedBox(height: 16),
             Row(
@@ -361,7 +380,7 @@ class _StudentDashboardState extends State<StudentDashboard> with TickerProvider
                 Expanded(
                   child: OutlinedButton(
                     onPressed: () {
-                      _showTrainerProfile(trainer);
+                      _showTrainerProfileFromUser(trainer);
                     },
                     child: const Text('Ver Perfil'),
                   ),
@@ -370,7 +389,7 @@ class _StudentDashboardState extends State<StudentDashboard> with TickerProvider
                 Expanded(
                   child: ElevatedButton(
                     onPressed: () {
-                      _sendConnectionRequest(trainer);
+                      _sendConnectionRequestToUser(trainer);
                     },
                     child: const Text('Conectar'),
                   ),
@@ -383,103 +402,247 @@ class _StudentDashboardState extends State<StudentDashboard> with TickerProvider
     );
   }
 
-  Widget _buildConnectionsTab() {
-    return Consumer<ConnectionProvider>(
-      builder: (context, connectionProvider, child) {
-        if (connectionProvider.isLoading) {
-          return const Center(child: CircularProgressIndicator());
-        }
-
-        final connections = connectionProvider.connections
-            .where((conn) => conn.status == ConnectionStatus.accepted)
-            .toList();
-
-        if (connections.isEmpty) {
-          return const Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(Icons.people_outline, size: 64, color: Colors.grey),
-                SizedBox(height: 16),
-                Text(
-                  'Você ainda não tem conexões',
-                  style: TextStyle(fontSize: 18, color: Colors.grey),
+  void _showTrainerProfileFromUser(User trainer) {
+    showDialog(
+      context: context,
+      builder: (context) => Dialog(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircleAvatar(
+                radius: 40,
+                backgroundColor: Theme.of(context).colorScheme.primary,
+                child: Text(
+                  trainer.name.substring(0, 1).toUpperCase(),
+                  style: const TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
                 ),
-                SizedBox(height: 8),
-                Text(
-                  'Busque por personal trainers e faça conexões!',
-                  style: TextStyle(color: Colors.grey),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                trainer.name,
+                style: const TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
                 ),
-              ],
-            ),
-          );
-        }
+              ),
+              const Text(
+                'Personal Trainer',
+                style: TextStyle(
+                  fontSize: 16,
+                  color: Colors.grey,
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                trainer.email,
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 14),
+              ),
+              const SizedBox(height: 24),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('Fechar'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: () {
+                        Navigator.pop(context);
+                        _sendConnectionRequestToUser(trainer);
+                      },
+                      child: const Text('Conectar'),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 
-        return ListView.builder(
-          padding: const EdgeInsets.all(16),
-          itemCount: connections.length,
-          itemBuilder: (context, index) {
-            final connection = connections[index];
-            return _buildConnectionCard(connection);
-          },
+  void _sendConnectionRequestToUser(User trainer) async {
+    final currentUser = context.read<AuthProvider>().currentUser;
+    if (currentUser == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Erro: usuário não autenticado'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    // Mostrar loading
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(
+        child: CircularProgressIndicator(),
+      ),
+    );
+
+    try {
+      final studentId = int.parse(currentUser.id);
+      final trainerId = int.parse(trainer.id);
+      
+      print('📤 Enviando solicitação: Student $studentId -> Trainer $trainerId');
+      
+      final success = await _connectionService.createConnection(
+        studentId,
+        trainerId,
+      );
+
+      if (!mounted) return;
+      Navigator.pop(context); // Fechar loading
+
+      if (success) {
+        print('✅ Solicitação enviada com sucesso!');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Solicitação enviada para ${trainer.name}'),
+            backgroundColor: Colors.green,
+          ),
         );
+        // Recarregar conexões
+        await _loadConnections();
+      } else {
+        print('⚠️ Falha ao enviar solicitação');
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Erro ao enviar solicitação. Você já pode ter uma solicitação pendente.'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      Navigator.pop(context); // Fechar loading
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Erro ao enviar solicitação: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  Widget _buildConnectionsTab() {
+    if (_isLoadingConnections) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    if (_acceptedConnections.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.people_outline, size: 64, color: Colors.grey),
+            const SizedBox(height: 16),
+            const Text(
+              'Você ainda não tem conexões',
+              style: TextStyle(fontSize: 18, color: Colors.grey),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Busque por personal trainers e faça conexões!',
+              style: TextStyle(color: Colors.grey),
+            ),
+            const SizedBox(height: 24),
+            ElevatedButton.icon(
+              onPressed: _loadConnections,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Atualizar'),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return ListView.builder(
+      padding: const EdgeInsets.all(16),
+      itemCount: _acceptedConnections.length,
+      itemBuilder: (context, index) {
+        final connection = _acceptedConnections[index];
+        return _buildConnectionCardFromModel(connection);
       },
     );
   }
 
-  Widget _buildConnectionCard(Connection connection) {
-    // In a real app, we would get trainer details from the connection or user service
-    // For now, we'll use trainerId as a placeholder
+  Widget _buildConnectionCardFromModel(ConnectionModel connection) {
+    final trainerInfo = _trainerInfo[connection.trainerId];
+    final trainerName = trainerInfo?['name'] ?? 'Personal #${connection.trainerId}';
+    final trainerEmail = trainerInfo?['email'] ?? '';
+
     return Card(
       margin: const EdgeInsets.only(bottom: 16),
       child: ListTile(
         leading: CircleAvatar(
           backgroundColor: Theme.of(context).colorScheme.primary,
           child: Text(
-            'T', // Using 'T' for trainer
+            trainerName.substring(0, 1).toUpperCase(),
             style: const TextStyle(
               fontWeight: FontWeight.bold,
               color: Colors.white,
             ),
           ),
         ),
-        title: Text('Personal Trainer ${connection.trainerId.substring(0, 8)}'),
-        subtitle: const Text('Personal Trainer'),
-        trailing: PopupMenuButton<String>(
-          onSelected: (value) {
-            switch (value) {
-              case 'chat':
+        title: Text(trainerName),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (trainerEmail.isNotEmpty)
+              Text(trainerEmail),
+            const SizedBox(height: 4),
+            Text(
+              'Conectado',
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.green.shade700,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            IconButton(
+              icon: const Icon(Icons.chat_outlined),
+              onPressed: () {
                 context.go('/chat/${connection.trainerId}');
-                break;
-              case 'rate':
-                _showRatingDialog(connection);
-                break;
-              case 'disconnect':
-                _disconnectTrainer(connection);
-                break;
-            }
-          },
-          itemBuilder: (context) => [
-            const PopupMenuItem(
-              value: 'chat',
-              child: ListTile(
-                leading: Icon(Icons.chat_outlined),
-                title: Text('Conversar'),
-              ),
+              },
+              tooltip: 'Conversar',
             ),
-            const PopupMenuItem(
-              value: 'rate',
-              child: ListTile(
-                leading: Icon(Icons.star_outline),
-                title: Text('Avaliar'),
-              ),
-            ),
-            const PopupMenuItem(
-              value: 'disconnect',
-              child: ListTile(
-                leading: Icon(Icons.link_off),
-                title: Text('Desconectar'),
-              ),
+            PopupMenuButton<String>(
+              onSelected: (value) {
+                switch (value) {
+                  case 'disconnect':
+                    _disconnectTrainerFromModel(connection);
+                    break;
+                }
+              },
+              itemBuilder: (context) => [
+                const PopupMenuItem(
+                  value: 'disconnect',
+                  child: ListTile(
+                    leading: Icon(Icons.link_off, color: Colors.red),
+                    title: Text('Desconectar'),
+                  ),
+                ),
+              ],
             ),
           ],
         ),
@@ -488,6 +651,77 @@ class _StudentDashboardState extends State<StudentDashboard> with TickerProvider
         },
       ),
     );
+  }
+
+  Future<void> _disconnectTrainerFromModel(ConnectionModel connection) async {
+    // Confirmar desconexão
+    final trainerInfo = _trainerInfo[connection.trainerId];
+    final trainerName = trainerInfo?['name'] ?? 'este personal trainer';
+    
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Desconectar'),
+        content: Text('Tem certeza que deseja desconectar de $trainerName?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancelar'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+            ),
+            child: const Text('Desconectar'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(
+        child: CircularProgressIndicator(),
+      ),
+    );
+
+    try {
+      final success = await _connectionService.deleteConnection(connection.id);
+
+      if (!mounted) return;
+      Navigator.pop(context); // Fechar loading
+
+      if (success) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Desconectado de $trainerName'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+        await _loadConnections(); // Recarregar lista
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Erro ao desconectar'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      Navigator.pop(context);
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Erro: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 
   Widget _buildMessagesTab() {
@@ -559,186 +793,6 @@ class _StudentDashboardState extends State<StudentDashboard> with TickerProvider
           },
         );
       },
-    );
-  }
-
-  void _showTrainerProfile(Map<String, dynamic> trainer) {
-    showDialog(
-      context: context,
-      builder: (context) => Dialog(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              CircleAvatar(
-                radius: 40,
-                backgroundColor: Theme.of(context).colorScheme.primary,
-                child: Text(
-                  trainer['name']!.substring(0, 1).toUpperCase(),
-                  style: const TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                trainer['name']!,
-                style: const TextStyle(
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              Text(
-                trainer['specialty']!,
-                style: TextStyle(
-                  fontSize: 16,
-                  color: Colors.grey.shade600,
-                ),
-              ),
-              const SizedBox(height: 16),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: [
-                  Column(
-                    children: [
-                      Icon(Icons.star, color: Colors.amber.shade600),
-                      Text(trainer['rating']!.toString()),
-                      const Text('Avaliação', style: TextStyle(fontSize: 12)),
-                    ],
-                  ),
-                  Column(
-                    children: [
-                      const Icon(Icons.work_outline),
-                      Text(trainer['experience']!),
-                      const Text('Experiência', style: TextStyle(fontSize: 12)),
-                    ],
-                  ),
-                  Column(
-                    children: [
-                      const Icon(Icons.monetization_on_outlined),
-                      Text(trainer['hourlyRate']!),
-                      const Text('Por hora', style: TextStyle(fontSize: 12)),
-                    ],
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              Text(
-                trainer['bio']!,
-                textAlign: TextAlign.center,
-                style: const TextStyle(fontSize: 14),
-              ),
-              const SizedBox(height: 24),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: () => Navigator.pop(context),
-                      child: const Text('Fechar'),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: ElevatedButton(
-                      onPressed: () {
-                        Navigator.pop(context);
-                        _sendConnectionRequest(trainer);
-                      },
-                      child: const Text('Conectar'),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  void _sendConnectionRequest(Map<String, dynamic> trainer) {
-    // In a real app, this would create a connection request
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Solicitação enviada para ${trainer['name']}'),
-        backgroundColor: Colors.green,
-      ),
-    );
-  }
-
-  void _showRatingDialog(Connection connection) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Avaliar Personal Trainer'),
-        content: const Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text('Como foi sua experiência?'),
-            SizedBox(height: 16),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(Icons.star_border, size: 32),
-                Icon(Icons.star_border, size: 32),
-                Icon(Icons.star_border, size: 32),
-                Icon(Icons.star_border, size: 32),
-                Icon(Icons.star_border, size: 32),
-              ],
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancelar'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.pop(context);
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Avaliação enviada!'),
-                  backgroundColor: Colors.green,
-                ),
-              );
-            },
-            child: const Text('Enviar'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _disconnectTrainer(Connection connection) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Desconectar'),
-        content: const Text('Tem certeza que deseja se desconectar deste personal trainer?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancelar'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.pop(context);
-              // In a real app, this would call a proper disconnect method
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Desconectado com sucesso'),
-                  backgroundColor: Colors.orange,
-                ),
-              );
-            },
-            child: const Text('Desconectar'),
-          ),
-        ],
-      ),
     );
   }
 }

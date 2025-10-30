@@ -1,245 +1,181 @@
 import 'dart:convert';
-import 'package:shared_preferences/shared_preferences.dart';
-import '../models/connection.dart';
+import 'package:http/http.dart' as http;
+import '../config/config.dart';
+
+enum ConnectionStatusEnum {
+  pending,
+  accepted,
+  rejected;
+
+  String toJson() => name;
+
+  static ConnectionStatusEnum fromJson(String json) {
+    return ConnectionStatusEnum.values.firstWhere((e) => e.name == json);
+  }
+}
+
+class ConnectionModel {
+  final int id;
+  final int studentId;
+  final int trainerId;
+  final ConnectionStatusEnum status;
+
+  ConnectionModel({
+    required this.id,
+    required this.studentId,
+    required this.trainerId,
+    required this.status,
+  });
+
+  factory ConnectionModel.fromJson(Map<String, dynamic> json) {
+    return ConnectionModel(
+      id: json['id'] as int,
+      studentId: json['student_id'] as int,
+      trainerId: json['trainer_id'] as int,
+      status: ConnectionStatusEnum.fromJson(json['status'] as String),
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'student_id': studentId,
+      'trainer_id': trainerId,
+      'status': status.toJson(),
+    };
+  }
+}
 
 class ConnectionService {
-  static const String _connectionsKey = 'connections';
-
-  // Get all connections
-  Future<List<Connection>> getConnections() async {
-    final prefs = await SharedPreferences.getInstance();
-    final connectionsJson = prefs.getString(_connectionsKey);
-
-    if (connectionsJson == null) return [];
-
-    final connectionsList = jsonDecode(connectionsJson) as List;
-    return connectionsList
-        .map((json) => Connection.fromJson(json as Map<String, dynamic>))
-        .toList();
-  }
-
-  // Save connections to storage
-  Future<void> _saveConnections(List<Connection> connections) async {
-    final prefs = await SharedPreferences.getInstance();
-    final connectionsJson = jsonEncode(
-      connections.map((conn) => conn.toJson()).toList(),
-    );
-    await prefs.setString(_connectionsKey, connectionsJson);
-  }
-
-  // Send connection request from student to trainer
-  Future<bool> sendConnectionRequest({
-    required String trainerId,
-    required String studentId,
-    required String studentName,
-    required String studentEmail,
-  }) async {
+  /// Cria uma nova solicitação de conexão
+  Future<bool> createConnection(int studentId, int trainerId) async {
     try {
-      final connections = await getConnections();
+      final response = await http.post(
+        Uri.parse('${Config.apiUrl}/connections/'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({
+          'student_id': studentId,
+          'trainer_id': trainerId,
+        }),
+      );
 
-      // Check if connection already exists
-      final existingConnection = connections
-          .where(
-            (conn) =>
-                conn.trainerId == trainerId && conn.studentId == studentId,
-          )
-          .firstOrNull;
-
-      if (existingConnection != null) {
-        return false; // Connection already exists
+      print('Create connection status: ${response.statusCode}');
+      
+      if (response.statusCode == 201) {
+        return true;
+      } else {
+        print('Erro ao criar conexão: ${response.body}');
+        return false;
       }
-
-      final newConnection = Connection(
-        id: DateTime.now().millisecondsSinceEpoch.toString(),
-        trainerId: trainerId,
-        studentId: studentId,
-        studentName: studentName,
-        studentEmail: studentEmail,
-        status: ConnectionStatus.pending,
-        createdAt: DateTime.now(),
-      );
-
-      connections.add(newConnection);
-      await _saveConnections(connections);
-
-      return true;
     } catch (e) {
+      print('Erro ao criar conexão: $e');
       return false;
     }
   }
 
-  // Accept connection request (trainer only)
-  Future<bool> acceptConnectionRequest(String connectionId) async {
+  /// Busca conexões pendentes de um personal trainer
+  Future<List<ConnectionModel>> getTrainerPendingConnections(int trainerId) async {
     try {
-      final connections = await getConnections();
-      final connectionIndex = connections.indexWhere(
-        (conn) => conn.id == connectionId,
+      final response = await http.get(
+        Uri.parse('${Config.apiUrl}/connections/trainer/$trainerId/pending'),
+        headers: {'Content-Type': 'application/json'},
       );
 
-      if (connectionIndex == -1) return false;
-
-      final connection = connections[connectionIndex];
-
-      // Check if student already has an active connection
-      final studentActiveConnection = connections
-          .where(
-            (conn) =>
-                conn.studentId == connection.studentId &&
-                conn.status == ConnectionStatus.accepted,
-          )
-          .firstOrNull;
-
-      if (studentActiveConnection != null) {
-        return false; // Student already has an active connection
+      if (response.statusCode == 200) {
+        final List<dynamic> data = json.decode(response.body);
+        return data.map((json) => ConnectionModel.fromJson(json)).toList();
+      } else {
+        print('Erro ao buscar conexões pendentes: ${response.statusCode}');
+        return [];
       }
-
-      final updatedConnection = connection.copyWith(
-        status: ConnectionStatus.accepted,
-        respondedAt: DateTime.now(),
-      );
-
-      connections[connectionIndex] = updatedConnection;
-      await _saveConnections(connections);
-
-      return true;
     } catch (e) {
-      return false;
+      print('Erro ao buscar conexões pendentes: $e');
+      return [];
     }
   }
 
-  // Reject connection request (trainer only)
-  Future<bool> rejectConnectionRequest(String connectionId) async {
+  /// Busca todas as conexões de um personal trainer
+  Future<List<ConnectionModel>> getTrainerConnections(int trainerId) async {
     try {
-      final connections = await getConnections();
-      final connectionIndex = connections.indexWhere(
-        (conn) => conn.id == connectionId,
+      final response = await http.get(
+        Uri.parse('${Config.apiUrl}/connections/trainer/$trainerId'),
+        headers: {'Content-Type': 'application/json'},
       );
 
-      if (connectionIndex == -1) return false;
-
-      final connection = connections[connectionIndex];
-      final updatedConnection = connection.copyWith(
-        status: ConnectionStatus.rejected,
-        respondedAt: DateTime.now(),
-      );
-
-      connections[connectionIndex] = updatedConnection;
-      await _saveConnections(connections);
-
-      return true;
+      if (response.statusCode == 200) {
+        final List<dynamic> data = json.decode(response.body);
+        return data.map((json) => ConnectionModel.fromJson(json)).toList();
+      } else {
+        print('Erro ao buscar conexões: ${response.statusCode}');
+        return [];
+      }
     } catch (e) {
-      return false;
+      print('Erro ao buscar conexões: $e');
+      return [];
     }
   }
 
-  // Disconnect connection (student or trainer)
-  Future<bool> disconnectConnection(String studentId, String trainerId) async {
+  /// Busca todas as conexões de um aluno
+  Future<List<ConnectionModel>> getStudentConnections(int studentId) async {
     try {
-      final connections = await getConnections();
-      final connectionIndex = connections.indexWhere(
-        (conn) =>
-            conn.studentId == studentId &&
-            conn.trainerId == trainerId &&
-            conn.status == ConnectionStatus.accepted,
+      final response = await http.get(
+        Uri.parse('${Config.apiUrl}/connections/student/$studentId'),
+        headers: {'Content-Type': 'application/json'},
       );
 
-      if (connectionIndex == -1) return false;
-
-      connections.removeAt(connectionIndex);
-      await _saveConnections(connections);
-
-      return true;
+      if (response.statusCode == 200) {
+        final List<dynamic> data = json.decode(response.body);
+        return data.map((json) => ConnectionModel.fromJson(json)).toList();
+      } else {
+        print('Erro ao buscar conexões: ${response.statusCode}');
+        return [];
+      }
     } catch (e) {
-      return false;
+      print('Erro ao buscar conexões: $e');
+      return [];
     }
   }
 
-  // Get connections for a specific student
-  Future<List<Connection>> getStudentConnections(String studentId) async {
-    final connections = await getConnections();
-    return connections.where((conn) => conn.studentId == studentId).toList();
-  }
-
-  // Get connections for a specific trainer
-  Future<List<Connection>> getTrainerConnections(String trainerId) async {
-    final connections = await getConnections();
-    return connections.where((conn) => conn.trainerId == trainerId).toList();
-  }
-
-  // Get connected trainer for a student (if any)
-  Future<String?> getConnectedTrainerId(String studentId) async {
-    final connections = await getConnections();
-    final activeConnection = connections
-        .where(
-          (conn) =>
-              conn.studentId == studentId &&
-              conn.status == ConnectionStatus.accepted,
-        )
-        .firstOrNull;
-
-    return activeConnection?.trainerId;
-  }
-
-  // Get connected students for a trainer
-  Future<List<String>> getConnectedStudentIds(String trainerId) async {
-    final connections = await getConnections();
-    return connections
-        .where(
-          (conn) =>
-              conn.trainerId == trainerId &&
-              conn.status == ConnectionStatus.accepted,
-        )
-        .map((conn) => conn.studentId)
-        .toList();
-  }
-
-  // Rate trainer (student only)
-  Future<bool> rateTrainer(
-    String studentId,
-    String trainerId,
-    int rating,
-  ) async {
+  /// Atualiza o status de uma conexão (aceitar/rejeitar)
+  Future<bool> updateConnectionStatus(int connectionId, ConnectionStatusEnum status) async {
     try {
-      final connections = await getConnections();
-      final connectionIndex = connections.indexWhere(
-        (conn) =>
-            conn.studentId == studentId &&
-            conn.trainerId == trainerId &&
-            conn.status == ConnectionStatus.accepted,
+      final response = await http.patch(
+        Uri.parse('${Config.apiUrl}/connections/$connectionId'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({
+          'status': status.toJson(),
+        }),
       );
 
-      if (connectionIndex == -1) return false;
-
-      final connection = connections[connectionIndex];
-      final updatedConnection = connection.copyWith(rating: rating);
-
-      connections[connectionIndex] = updatedConnection;
-      await _saveConnections(connections);
-
-      return true;
+      if (response.statusCode == 200) {
+        return true;
+      } else {
+        print('Erro ao atualizar conexão: ${response.body}');
+        return false;
+      }
     } catch (e) {
+      print('Erro ao atualizar conexão: $e');
       return false;
     }
   }
 
-  // Get average rating for a trainer
-  Future<double> getTrainerAverageRating(String trainerId) async {
-    final connections = await getConnections();
-    final ratedConnections = connections
-        .where(
-          (conn) =>
-              conn.trainerId == trainerId &&
-              conn.status == ConnectionStatus.accepted &&
-              conn.rating != null,
-        )
-        .toList();
+  /// Remove uma conexão
+  Future<bool> deleteConnection(int connectionId) async {
+    try {
+      final response = await http.delete(
+        Uri.parse('${Config.apiUrl}/connections/$connectionId'),
+        headers: {'Content-Type': 'application/json'},
+      );
 
-    if (ratedConnections.isEmpty) return 0.0;
-
-    final totalRating = ratedConnections.fold<int>(
-      0,
-      (sum, conn) => sum + (conn.rating ?? 0),
-    );
-    return totalRating / ratedConnections.length;
+      if (response.statusCode == 200) {
+        return true;
+      } else {
+        print('Erro ao deletar conexão: ${response.body}');
+        return false;
+      }
+    } catch (e) {
+      print('Erro ao deletar conexão: $e');
+      return false;
+    }
   }
 }

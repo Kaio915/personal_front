@@ -123,6 +123,35 @@ class ApiService {
     }
   }
 
+  // PATCH request
+  static Future<http.Response> patch(
+    String endpoint, {
+    Map<String, dynamic>? body,
+    Map<String, String>? headers,
+    String? token,
+  }) async {
+    final uri = Uri.parse('$baseUrl$endpoint');
+    final requestHeaders = {
+      ..._headers,
+      if (headers != null) ...headers,
+      if (token != null) 'Authorization': 'Bearer $token',
+    };
+
+    try {
+      final response = await http
+          .patch(
+            uri,
+            headers: requestHeaders,
+            body: body != null ? jsonEncode(body) : null,
+          )
+          .timeout(timeout);
+
+      return response;
+    } catch (e) {
+      rethrow;
+    }
+  }
+
   // DELETE request
   static Future<http.Response> delete(
     String endpoint, {

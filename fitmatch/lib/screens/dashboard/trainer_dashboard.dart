@@ -2,9 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
 import '../../providers/auth_provider.dart';
-import '../../providers/connection_provider.dart';
 import '../../providers/chat_provider.dart';
-import '../../models/connection.dart';
+import '../../services/connection_service.dart';
+import '../../services/auth_service.dart';
 
 class TrainerDashboard extends StatefulWidget {
   const TrainerDashboard({super.key});
@@ -15,20 +15,93 @@ class TrainerDashboard extends StatefulWidget {
 
 class _TrainerDashboardState extends State<TrainerDashboard> with TickerProviderStateMixin {
   late TabController _tabController;
+  final ConnectionService _connectionService = ConnectionService();
+  List<ConnectionModel> _pendingConnections = [];
+  List<ConnectionModel> _acceptedConnections = [];
+  bool _isLoadingConnections = false;
+  Map<int, Map<String, String>> _studentInfo = {}; // Cache student info
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
     
+    // Adicionar listener para recarregar quando mudar de aba
+    _tabController.addListener(() {
+      if (_tabController.indexIsChanging) {
+        // Recarregar conexões quando acessar a aba de Solicitações ou Alunos
+        if (_tabController.index == 0 || _tabController.index == 1) {
+          _loadConnections();
+        }
+      }
+    });
+    
     // Load initial data
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<ConnectionProvider>().loadConnections();
       final user = context.read<AuthProvider>().currentUser;
       if (user != null) {
         context.read<ChatProvider>().initialize(user.id);
+        _loadConnections();
       }
     });
+  }
+
+  Future<void> _loadConnections() async {
+    final currentUser = context.read<AuthProvider>().currentUser;
+    if (currentUser == null) return;
+
+    setState(() {
+      _isLoadingConnections = true;
+    });
+
+    try {
+      final trainerId = int.parse(currentUser.id);
+      print('🔄 Carregando conexões do trainer ID: $trainerId');
+      
+      // Carregar solicitações pendentes
+      final pending = await _connectionService.getTrainerPendingConnections(trainerId);
+      print('✅ Conexões pendentes carregadas: ${pending.length}');
+      for (var conn in pending) {
+        print('  - Conexão #${conn.id}: Student ${conn.studentId} -> Trainer ${conn.trainerId} (${conn.status.name})');
+      }
+      
+      // Carregar todas as conexões aceitas
+      final all = await _connectionService.getTrainerConnections(trainerId);
+      final accepted = all.where((c) => c.status == ConnectionStatusEnum.accepted).toList();
+      print('✅ Conexões aceitas carregadas: ${accepted.length}');
+      
+      // Carregar informações dos alunos
+      final authService = AuthService();
+      for (var conn in [...pending, ...accepted]) {
+        if (!_studentInfo.containsKey(conn.studentId)) {
+          try {
+            final student = await authService.getUserById(conn.studentId);
+            if (student != null) {
+              _studentInfo[conn.studentId] = {
+                'name': student.name,
+                'email': student.email,
+              };
+              print('👤 Info do aluno ${conn.studentId} carregada: ${student.name}');
+            }
+          } catch (e) {
+            print('❌ Erro ao carregar info do aluno ${conn.studentId}: $e');
+          }
+        }
+      }
+      
+      setState(() {
+        _pendingConnections = pending;
+        _acceptedConnections = accepted;
+        _isLoadingConnections = false;
+      });
+      
+      print('✅ Carregamento concluído! Pendentes: ${_pendingConnections.length}, Aceitas: ${_acceptedConnections.length}');
+    } catch (e) {
+      print('❌ Erro ao carregar conexões: $e');
+      setState(() {
+        _isLoadingConnections = false;
+      });
+    }
   }
 
   @override
@@ -113,51 +186,53 @@ class _TrainerDashboardState extends State<TrainerDashboard> with TickerProvider
   }
 
   Widget _buildRequestsTab() {
-    return Consumer<ConnectionProvider>(
-      builder: (context, connectionProvider, child) {
-        if (connectionProvider.isLoading) {
-          return const Center(child: CircularProgressIndicator());
-        }
+    if (_isLoadingConnections) {
+      return const Center(child: CircularProgressIndicator());
+    }
 
-        final pendingConnections = connectionProvider.connections
-            .where((conn) => conn.status == ConnectionStatus.pending)
-            .toList();
-
-        if (pendingConnections.isEmpty) {
-          return const Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(Icons.pending_actions_outlined, size: 64, color: Colors.grey),
-                SizedBox(height: 16),
-                Text(
-                  'Nenhuma solicitação pendente',
-                  style: TextStyle(fontSize: 18, color: Colors.grey),
-                ),
-                SizedBox(height: 8),
-                Text(
-                  'Quando alunos solicitarem conexão, elas aparecerão aqui.',
-                  style: TextStyle(color: Colors.grey),
-                  textAlign: TextAlign.center,
-                ),
-              ],
+    if (_pendingConnections.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.pending_actions_outlined, size: 64, color: Colors.grey),
+            const SizedBox(height: 16),
+            const Text(
+              'Nenhuma solicitação pendente',
+              style: TextStyle(fontSize: 18, color: Colors.grey),
             ),
-          );
-        }
+            const SizedBox(height: 8),
+            const Text(
+              'Quando alunos solicitarem conexão, elas aparecerão aqui.',
+              style: TextStyle(color: Colors.grey),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 24),
+            ElevatedButton.icon(
+              onPressed: _loadConnections,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Atualizar'),
+            ),
+          ],
+        ),
+      );
+    }
 
-        return ListView.builder(
-          padding: const EdgeInsets.all(16),
-          itemCount: pendingConnections.length,
-          itemBuilder: (context, index) {
-            final connection = pendingConnections[index];
-            return _buildRequestCard(connection);
-          },
-        );
+    return ListView.builder(
+      padding: const EdgeInsets.all(16),
+      itemCount: _pendingConnections.length,
+      itemBuilder: (context, index) {
+        final connection = _pendingConnections[index];
+        return _buildRequestCardFromModel(connection);
       },
     );
   }
 
-  Widget _buildRequestCard(Connection connection) {
+  Widget _buildRequestCardFromModel(ConnectionModel connection) {
+    final studentInfo = _studentInfo[connection.studentId];
+    final studentName = studentInfo?['name'] ?? 'Aluno #${connection.studentId}';
+    final studentEmail = studentInfo?['email'] ?? '';
+
     return Card(
       margin: const EdgeInsets.only(bottom: 16),
       child: Padding(
@@ -171,7 +246,7 @@ class _TrainerDashboardState extends State<TrainerDashboard> with TickerProvider
                   radius: 30,
                   backgroundColor: Theme.of(context).colorScheme.secondary,
                   child: Text(
-                    connection.studentName.substring(0, 1).toUpperCase(),
+                    studentName.substring(0, 1).toUpperCase(),
                     style: const TextStyle(
                       fontSize: 20,
                       fontWeight: FontWeight.bold,
@@ -185,24 +260,26 @@ class _TrainerDashboardState extends State<TrainerDashboard> with TickerProvider
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        connection.studentName,
+                        studentName,
                         style: const TextStyle(
                           fontSize: 18,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
-                      Text(
-                        connection.studentEmail,
-                        style: TextStyle(
-                          fontSize: 14,
-                          color: Colors.grey.shade600,
+                      if (studentEmail.isNotEmpty)
+                        Text(
+                          studentEmail,
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.grey.shade600,
+                          ),
                         ),
-                      ),
                       Text(
-                        'Solicitação enviada em ${_formatDate(connection.createdAt)}',
+                        'Solicitação pendente',
                         style: TextStyle(
                           fontSize: 12,
-                          color: Colors.grey.shade500,
+                          color: Colors.orange.shade700,
+                          fontWeight: FontWeight.w500,
                         ),
                       ),
                     ],
@@ -214,20 +291,21 @@ class _TrainerDashboardState extends State<TrainerDashboard> with TickerProvider
             Row(
               children: [
                 Expanded(
-                  child: OutlinedButton(
+                  child: OutlinedButton.icon(
                     onPressed: () => _rejectConnection(connection),
+                    icon: const Icon(Icons.close),
+                    label: const Text('Rejeitar'),
                     style: OutlinedButton.styleFrom(
                       foregroundColor: Colors.red,
-                      side: const BorderSide(color: Colors.red),
                     ),
-                    child: const Text('Recusar'),
                   ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
-                  child: ElevatedButton(
+                  child: ElevatedButton.icon(
                     onPressed: () => _acceptConnection(connection),
-                    child: const Text('Aceitar'),
+                    icon: const Icon(Icons.check),
+                    label: const Text('Aceitar'),
                   ),
                 ),
               ],
@@ -238,112 +316,229 @@ class _TrainerDashboardState extends State<TrainerDashboard> with TickerProvider
     );
   }
 
-  Widget _buildStudentsTab() {
-    return Consumer<ConnectionProvider>(
-      builder: (context, connectionProvider, child) {
-        if (connectionProvider.isLoading) {
-          return const Center(child: CircularProgressIndicator());
-        }
+  Future<void> _acceptConnection(ConnectionModel connection) async {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(
+        child: CircularProgressIndicator(),
+      ),
+    );
 
-        final acceptedConnections = connectionProvider.connections
-            .where((conn) => conn.status == ConnectionStatus.accepted)
-            .toList();
+    try {
+      final success = await _connectionService.updateConnectionStatus(
+        connection.id,
+        ConnectionStatusEnum.accepted,
+      );
 
-        if (acceptedConnections.isEmpty) {
-          return const Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(Icons.people_outline, size: 64, color: Colors.grey),
-                SizedBox(height: 16),
-                Text(
-                  'Nenhum aluno conectado',
-                  style: TextStyle(fontSize: 18, color: Colors.grey),
-                ),
-                SizedBox(height: 8),
-                Text(
-                  'Aceite solicitações de conexão para ver seus alunos aqui.',
-                  style: TextStyle(color: Colors.grey),
-                  textAlign: TextAlign.center,
-                ),
-              ],
-            ),
-          );
-        }
+      if (!mounted) return;
+      Navigator.pop(context); // Fechar loading
 
-        return ListView.builder(
-          padding: const EdgeInsets.all(16),
-          itemCount: acceptedConnections.length,
-          itemBuilder: (context, index) {
-            final connection = acceptedConnections[index];
-            return _buildStudentCard(connection);
-          },
+      if (success) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Conexão com ${_studentInfo[connection.studentId]?['name'] ?? 'aluno'} aceita!'),
+            backgroundColor: Colors.green,
+          ),
         );
+        await _loadConnections(); // Recarregar lista
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Erro ao aceitar conexão'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      Navigator.pop(context);
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Erro: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  Future<void> _rejectConnection(ConnectionModel connection) async {
+    // Confirmar rejeição
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Rejeitar solicitação'),
+        content: Text('Tem certeza que deseja rejeitar a solicitação de ${_studentInfo[connection.studentId]?['name'] ?? 'este aluno'}?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancelar'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+            ),
+            child: const Text('Rejeitar'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(
+        child: CircularProgressIndicator(),
+      ),
+    );
+
+    try {
+      final success = await _connectionService.updateConnectionStatus(
+        connection.id,
+        ConnectionStatusEnum.rejected,
+      );
+
+      if (!mounted) return;
+      Navigator.pop(context); // Fechar loading
+
+      if (success) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Solicitação rejeitada'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+        await _loadConnections(); // Recarregar lista
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Erro ao rejeitar conexão'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      Navigator.pop(context);
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Erro: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  Widget _buildStudentsTab() {
+    if (_isLoadingConnections) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    if (_acceptedConnections.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.people_outline, size: 64, color: Colors.grey),
+            const SizedBox(height: 16),
+            const Text(
+              'Nenhum aluno conectado',
+              style: TextStyle(fontSize: 18, color: Colors.grey),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Aceite solicitações de conexão para ver seus alunos aqui.',
+              style: TextStyle(color: Colors.grey),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 24),
+            ElevatedButton.icon(
+              onPressed: _loadConnections,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Atualizar'),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return ListView.builder(
+      padding: const EdgeInsets.all(16),
+      itemCount: _acceptedConnections.length,
+      itemBuilder: (context, index) {
+        final connection = _acceptedConnections[index];
+        return _buildStudentCardFromModel(connection);
       },
     );
   }
 
-  Widget _buildStudentCard(Connection connection) {
+  Widget _buildStudentCardFromModel(ConnectionModel connection) {
+    final studentInfo = _studentInfo[connection.studentId];
+    final studentName = studentInfo?['name'] ?? 'Aluno #${connection.studentId}';
+    final studentEmail = studentInfo?['email'] ?? '';
+
     return Card(
       margin: const EdgeInsets.only(bottom: 16),
       child: ListTile(
         leading: CircleAvatar(
           backgroundColor: Theme.of(context).colorScheme.secondary,
           child: Text(
-            connection.studentName.substring(0, 1).toUpperCase(),
+            studentName.substring(0, 1).toUpperCase(),
             style: const TextStyle(
               fontWeight: FontWeight.bold,
               color: Colors.white,
             ),
           ),
         ),
-        title: Text(connection.studentName),
+        title: Text(studentName),
         subtitle: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(connection.studentEmail),
+            if (studentEmail.isNotEmpty)
+              Text(studentEmail),
             const SizedBox(height: 4),
             Text(
-              'Conectado desde ${_formatDate(connection.respondedAt ?? connection.createdAt)}',
-              style: const TextStyle(fontSize: 12),
+              'Conectado',
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.green.shade700,
+                fontWeight: FontWeight.w500,
+              ),
             ),
           ],
         ),
-        trailing: PopupMenuButton<String>(
-          onSelected: (value) {
-            switch (value) {
-              case 'chat':
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            IconButton(
+              icon: const Icon(Icons.chat_outlined),
+              onPressed: () {
                 context.go('/chat/${connection.studentId}');
-                break;
-              case 'view_rating':
-                _showStudentRating(connection);
-                break;
-              case 'disconnect':
-                _disconnectStudent(connection);
-                break;
-            }
-          },
-          itemBuilder: (context) => [
-            const PopupMenuItem(
-              value: 'chat',
-              child: ListTile(
-                leading: Icon(Icons.chat_outlined),
-                title: Text('Conversar'),
-              ),
+              },
+              tooltip: 'Conversar',
             ),
-            const PopupMenuItem(
-              value: 'view_rating',
-              child: ListTile(
-                leading: Icon(Icons.star_outline),
-                title: Text('Ver Avaliação'),
-              ),
-            ),
-            const PopupMenuItem(
-              value: 'disconnect',
-              child: ListTile(
-                leading: Icon(Icons.link_off),
-                title: Text('Desconectar'),
-              ),
+            PopupMenuButton<String>(
+              onSelected: (value) {
+                switch (value) {
+                  case 'disconnect':
+                    _disconnectStudent(connection);
+                    break;
+                }
+              },
+              itemBuilder: (context) => [
+                const PopupMenuItem(
+                  value: 'disconnect',
+                  child: ListTile(
+                    leading: Icon(Icons.link_off, color: Colors.red),
+                    title: Text('Desconectar'),
+                  ),
+                ),
+              ],
             ),
           ],
         ),
@@ -352,6 +547,77 @@ class _TrainerDashboardState extends State<TrainerDashboard> with TickerProvider
         },
       ),
     );
+  }
+
+  Future<void> _disconnectStudent(ConnectionModel connection) async {
+    // Confirmar desconexão
+    final studentInfo = _studentInfo[connection.studentId];
+    final studentName = studentInfo?['name'] ?? 'este aluno';
+    
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Desconectar aluno'),
+        content: Text('Tem certeza que deseja desconectar $studentName?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancelar'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+            ),
+            child: const Text('Desconectar'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(
+        child: CircularProgressIndicator(),
+      ),
+    );
+
+    try {
+      final success = await _connectionService.deleteConnection(connection.id);
+
+      if (!mounted) return;
+      Navigator.pop(context); // Fechar loading
+
+      if (success) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Desconectado de $studentName'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+        await _loadConnections(); // Recarregar lista
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Erro ao desconectar'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      Navigator.pop(context);
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Erro: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 
   Widget _buildMessagesTab() {
@@ -424,160 +690,5 @@ class _TrainerDashboardState extends State<TrainerDashboard> with TickerProvider
         );
       },
     );
-  }
-
-  void _acceptConnection(Connection connection) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Aceitar Conexão'),
-        content: Text('Aceitar solicitação de ${connection.studentName}?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancelar'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.pop(context);
-              // In a real app, this would update the connection status
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('Conexão com ${connection.studentName} aceita!'),
-                  backgroundColor: Colors.green,
-                ),
-              );
-            },
-            child: const Text('Aceitar'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _rejectConnection(Connection connection) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Recusar Conexão'),
-        content: Text('Recusar solicitação de ${connection.studentName}?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancelar'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.pop(context);
-              // In a real app, this would update the connection status
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('Conexão com ${connection.studentName} recusada'),
-                  backgroundColor: Colors.orange,
-                ),
-              );
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red,
-              foregroundColor: Colors.white,
-            ),
-            child: const Text('Recusar'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showStudentRating(Connection connection) {
-    final rating = connection.rating ?? 0;
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Avaliação de ${connection.studentName}'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (rating > 0) ...[
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: List.generate(5, (index) {
-                  return Icon(
-                    index < rating ? Icons.star : Icons.star_border,
-                    color: Colors.amber.shade600,
-                    size: 32,
-                  );
-                }),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                '$rating/5 estrelas',
-                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-              ),
-            ] else ...[
-              const Icon(Icons.star_border, size: 48, color: Colors.grey),
-              const SizedBox(height: 8),
-              const Text('Ainda não avaliado'),
-            ],
-          ],
-        ),
-        actions: [
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Fechar'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _disconnectStudent(Connection connection) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Desconectar Aluno'),
-        content: Text('Tem certeza que deseja se desconectar de ${connection.studentName}?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancelar'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.pop(context);
-              // In a real app, this would remove the connection
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('Desconectado de ${connection.studentName}'),
-                  backgroundColor: Colors.orange,
-                ),
-              );
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red,
-              foregroundColor: Colors.white,
-            ),
-            child: const Text('Desconectar'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  String _formatDate(DateTime date) {
-    final now = DateTime.now();
-    final difference = now.difference(date);
-    
-    if (difference.inDays == 0) {
-      return 'hoje';
-    } else if (difference.inDays == 1) {
-      return 'ontem';
-    } else if (difference.inDays < 7) {
-      return '${difference.inDays} dias atrás';
-    } else if (difference.inDays < 30) {
-      final weeks = (difference.inDays / 7).floor();
-      return '$weeks semana${weeks > 1 ? 's' : ''} atrás';
-    } else {
-      return '${date.day}/${date.month}/${date.year}';
-    }
   }
 }

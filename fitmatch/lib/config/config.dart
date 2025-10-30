@@ -6,7 +6,7 @@ class Config {
   // URLs da API
   static const String productionApiUrl =
       'https://personal-api-a5n6.onrender.com';
-  static const String developmentApiUrl = 'http://localhost:8000';
+  static const String developmentApiUrl = 'http://127.0.0.1:8000';
 
   // URL atual baseada na URL do navegador
   static String get apiUrl {

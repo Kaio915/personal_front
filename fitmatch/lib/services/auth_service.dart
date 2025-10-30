@@ -1,7 +1,9 @@
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:http/http.dart' as http;
 import '../models/user.dart';
 import '../models/pending_registration.dart';
+import '../config/config.dart';
 import 'api_service.dart';
 
 class AuthService {
@@ -89,6 +91,10 @@ class AuthService {
   // Login user via API
   Future<User?> login(String email, String password) async {
     try {
+      print('=== INICIANDO LOGIN ===');
+      print('Email: $email');
+      print('URL: ${Config.apiUrl}/auth/login');
+      
       // Fazer requisição de login para a API
       final response = await ApiService.postForm(
         '/auth/login',
@@ -97,6 +103,9 @@ class AuthService {
           'password': password,
         },
       );
+
+      print('Status da resposta: ${response.statusCode}');
+      print('Corpo da resposta: ${response.body}');
 
       if (!ApiService.isSuccess(response)) {
         print('Login falhou: ${response.statusCode} - ${response.body}');
@@ -115,19 +124,70 @@ class AuthService {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(_tokenKey, token);
 
-      // Criar usuário a partir do token (decodificar JWT para pegar informações)
-      // Por enquanto, vamos criar um usuário básico com o email
-      // Idealmente você deveria ter um endpoint /me para buscar dados completos do usuário
-      final user = User(
-        id: email, // Temporário - idealmente viria do backend
-        email: email,
-        name: 'Usuário', // Temporário - idealmente viria do backend
-        userType: UserType.admin, // Temporário - deveria vir do token
-        approved: true,
-      );
+      print('Token salvo, buscando dados do usuário do banco...');
 
-      await _saveCurrentUser(user);
-      return user;
+      // Aguardar um pouco para garantir que o servidor está pronto
+      await Future.delayed(Duration(milliseconds: 100));
+
+      // Buscar dados completos do usuário do banco de dados usando o endpoint /me
+      try {
+        final userResponse = await http.get(
+          Uri.parse('${Config.apiUrl}/auth/me'),
+          headers: {
+            'Authorization': 'Bearer $token',
+            'Content-Type': 'application/json',
+          },
+        ).timeout(
+          Duration(seconds: 5),
+          onTimeout: () {
+            throw Exception('Timeout ao buscar dados do usuário');
+          },
+        );
+
+        print('Status /auth/me: ${userResponse.statusCode}');
+        
+        if (userResponse.statusCode != 200) {
+          print('Erro ao buscar dados do usuário: ${userResponse.statusCode}');
+          print('Response: ${userResponse.body}');
+          // Limpar token e retornar null
+          await prefs.remove(_tokenKey);
+          return null;
+        }
+
+        final userData = json.decode(userResponse.body);
+        print('Dados do usuário recebidos do banco: $userData');
+        
+        // Mapear role para UserType
+        UserType userType;
+        final roleName = userData['role']['name'] as String;
+        if (roleName == 'admin') {
+          userType = UserType.admin;
+        } else if (roleName == 'personal') {
+          userType = UserType.trainer;
+        } else if (roleName == 'aluno') {
+          userType = UserType.student;
+        } else {
+          userType = UserType.student; // default
+        }
+
+        final user = User(
+          id: userData['id'].toString(),
+          email: userData['email'] as String,
+          name: userData['full_name'] as String? ?? 'Usuário',
+          userType: userType,
+          approved: userData['approved'] as bool? ?? false,
+        );
+
+        print('Usuário criado: ${user.name} (${user.email}) - Role: ${user.userType.value}');
+
+        await _saveCurrentUser(user);
+        return user;
+      } catch (e) {
+        print('Exceção ao buscar /auth/me: $e');
+        // Se falhar ao buscar /me, limpar token
+        await prefs.remove(_tokenKey);
+        return null;
+      }
     } catch (e) {
       print('Erro ao fazer login: $e');
       return null;
@@ -138,6 +198,52 @@ class AuthService {
   Future<String?> getToken() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getString(_tokenKey);
+  }
+
+  // Get user by ID from API
+  Future<User?> getUserById(int userId) async {
+    try {
+      final token = await getToken();
+      if (token == null) return null;
+
+      final response = await http.get(
+        Uri.parse('${Config.apiUrl}/users/$userId'),
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json',
+        },
+      );
+
+      if (response.statusCode == 200) {
+        final userData = json.decode(response.body);
+        
+        // Mapear role para UserType
+        UserType userType;
+        final roleName = userData['role']['name'] as String;
+        if (roleName == 'admin') {
+          userType = UserType.admin;
+        } else if (roleName == 'personal') {
+          userType = UserType.trainer;
+        } else if (roleName == 'aluno') {
+          userType = UserType.student;
+        } else {
+          userType = UserType.student; // default
+        }
+
+        return User(
+          id: userData['id'].toString(),
+          email: userData['email'] as String,
+          name: userData['full_name'] as String? ?? 'Usuário',
+          userType: userType,
+          approved: userData['approved'] as bool? ?? false,
+        );
+      }
+      
+      return null;
+    } catch (e) {
+      print('Erro ao buscar usuário $userId: $e');
+      return null;
+    }
   }
 
   // Login user (método antigo com SharedPreferences - mantido como backup)
@@ -163,44 +269,89 @@ class AuthService {
     return user;
   }
 
-  // Register new user (creates pending registration)
-  Future<bool> signup(Map<String, dynamic> userData, String password) async {
+  // Register new user (creates user via API)
+  Future<Map<String, dynamic>> signup(Map<String, dynamic> userData, String password) async {
     try {
-      final pendingRegistrations = await getPendingRegistrations();
-      final users = await getUsers();
-
       final email = userData['email'] as String;
-
-      // Check if email already exists
-      if (users.any((u) => u.email == email) ||
-          pendingRegistrations.any((p) => p.email == email)) {
-        return false;
+      final name = userData['name'] as String;
+      final userType = userData['userType'] as String;
+      
+      // Mapear o tipo de usuário para role_id
+      // 1 = admin, 2 = personal, 3 = aluno
+      int roleId;
+      if (userType == 'trainer') {
+        roleId = 2; // personal
+      } else if (userType == 'student') {
+        roleId = 3; // aluno
+      } else {
+        roleId = 3; // default para aluno
       }
 
-      final pendingRegistration = PendingRegistration(
-        id: DateTime.now().millisecondsSinceEpoch.toString(),
-        email: email,
-        name: userData['name'] as String,
-        userType: UserType.fromString(userData['userType'] as String),
-        password: password, // In real app, this should be hashed
-        registrationDate: DateTime.now(),
-        approved: false,
-        specialty: userData['specialty'] as String?,
-        cref: userData['cref'] as String?,
-        experience: userData['experience'] as String?,
-        bio: userData['bio'] as String?,
-        hourlyRate: userData['hourlyRate'] as String?,
-        city: userData['city'] as String?,
-        goals: userData['goals'] as String?,
-        fitnessLevel: userData['fitnessLevel'] as String?,
+      // Preparar dados para enviar à API
+      final requestBody = {
+        'email': email,
+        'password': password,
+        'full_name': name,
+        'role_id': roleId,
+      };
+
+      print('Enviando requisição para: ${Config.apiUrl}/users');
+      print('Dados: $requestBody');
+
+      // Fazer requisição POST para criar usuário
+      final response = await http.post(
+        Uri.parse('${Config.apiUrl}/users'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode(requestBody),
       );
 
-      pendingRegistrations.add(pendingRegistration);
-      await _savePendingRegistrations(pendingRegistrations);
+      print('Status code: ${response.statusCode}');
+      print('Response body: ${response.body}');
 
-      return true;
+      if (response.statusCode == 201) {
+        // Usuário criado com sucesso
+        return {'success': true, 'message': 'Cadastro realizado com sucesso!'};
+      } else if (response.statusCode == 400) {
+        // Erro de validação (ex: email já cadastrado)
+        final errorData = json.decode(response.body);
+        return {
+          'success': false,
+          'message': errorData['detail'] ?? 'Erro ao criar cadastro'
+        };
+      } else if (response.statusCode == 422) {
+        // Erro de validação de campos
+        try {
+          final errorData = json.decode(response.body);
+          final detail = errorData['detail'];
+          if (detail is List && detail.isNotEmpty) {
+            // Extrair mensagem do primeiro erro
+            final firstError = detail[0];
+            final field = firstError['loc']?.last ?? 'campo';
+            final msg = firstError['msg'] ?? 'inválido';
+            return {
+              'success': false,
+              'message': 'Erro no campo "$field": $msg'
+            };
+          }
+          return {
+            'success': false,
+            'message': 'Erro de validação: ${errorData['detail']}'
+          };
+        } catch (e) {
+          return {
+            'success': false,
+            'message': 'Erro de validação nos dados enviados'
+          };
+        }
+      } else {
+        return {
+          'success': false,
+          'message': 'Erro ao criar cadastro. Código: ${response.statusCode}'
+        };
+      }
     } catch (e) {
-      return false;
+      print('Erro no signup: $e');
+      return {'success': false, 'message': 'Erro de conexão: $e'};
     }
   }
 
@@ -211,8 +362,13 @@ class AuthService {
 
     if (userJson == null) return null;
 
-    final userMap = jsonDecode(userJson) as Map<String, dynamic>;
-    return User.fromJson(userMap);
+    try {
+      final userMap = jsonDecode(userJson) as Map<String, dynamic>;
+      return User.fromJson(userMap);
+    } catch (e) {
+      print('Erro ao decodificar usuário salvo: $e');
+      return null;
+    }
   }
 
   // Save current user

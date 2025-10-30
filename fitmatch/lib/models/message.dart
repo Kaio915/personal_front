@@ -17,23 +17,23 @@ class Message {
 
   factory Message.fromJson(Map<String, dynamic> json) {
     return Message(
-      id: json['id'] as String,
-      senderId: json['senderId'] as String,
-      receiverId: json['receiverId'] as String,
+      id: json['id'].toString(),
+      senderId: json['sender_id'].toString(),
+      receiverId: json['receiver_id'].toString(),
       content: json['content'] as String,
       timestamp: DateTime.parse(json['timestamp'] as String),
-      isRead: json['isRead'] as bool? ?? false,
+      isRead: json['is_read'] as bool? ?? false,
     );
   }
 
   Map<String, dynamic> toJson() {
     return {
       'id': id,
-      'senderId': senderId,
-      'receiverId': receiverId,
+      'sender_id': senderId,
+      'receiver_id': receiverId,
       'content': content,
       'timestamp': timestamp.toIso8601String(),
-      'isRead': isRead,
+      'is_read': isRead,
     };
   }
 

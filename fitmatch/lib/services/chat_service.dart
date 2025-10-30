@@ -1,26 +1,14 @@
 import 'dart:convert';
-import 'package:shared_preferences/shared_preferences.dart';
 import '../models/message.dart';
+import 'api_service.dart';
+import 'auth_service.dart';
 
 class ChatService {
-  static const String _messagesKey = 'messages';
+  final AuthService _authService = AuthService();
 
-  // Get all messages
-  Future<List<Message>> getMessages() async {
-    final prefs = await SharedPreferences.getInstance();
-    final messagesJson = prefs.getString(_messagesKey);
-    
-    if (messagesJson == null) return [];
-    
-    final messagesList = jsonDecode(messagesJson) as List;
-    return messagesList.map((json) => Message.fromJson(json as Map<String, dynamic>)).toList();
-  }
-
-  // Save messages to storage
-  Future<void> _saveMessages(List<Message> messages) async {
-    final prefs = await SharedPreferences.getInstance();
-    final messagesJson = jsonEncode(messages.map((msg) => msg.toJson()).toList());
-    await prefs.setString(_messagesKey, messagesJson);
+  Future<String?> _getToken() async {
+    final token = await _authService.getToken();
+    return token;
   }
 
   // Send a message
@@ -30,121 +18,209 @@ class ChatService {
     required String content,
   }) async {
     try {
-      final messages = await getMessages();
+      print('💬 Sending message from $senderId to $receiverId');
       
-      final newMessage = Message(
-        id: DateTime.now().millisecondsSinceEpoch.toString(),
-        senderId: senderId,
-        receiverId: receiverId,
-        content: content,
-        timestamp: DateTime.now(),
-        isRead: false,
+      final token = await _getToken();
+      if (token == null) {
+        print('❌ No token found');
+        return false;
+      }
+      
+      final response = await ApiService.post(
+        '/messages/',
+        body: {
+          'receiver_id': int.parse(receiverId),
+          'content': content,
+        },
+        token: token,
       );
 
-      messages.add(newMessage);
-      await _saveMessages(messages);
-      
-      return true;
+      print('✅ Message sent successfully: ${response.statusCode}');
+      return response.statusCode == 200;
     } catch (e) {
+      print('❌ Error sending message: $e');
       return false;
     }
   }
 
   // Get messages between two users
   Future<List<Message>> getMessagesBetweenUsers(String userId1, String userId2) async {
-    final messages = await getMessages();
-    
-    return messages.where((msg) =>
-      (msg.senderId == userId1 && msg.receiverId == userId2) ||
-      (msg.senderId == userId2 && msg.receiverId == userId1)
-    ).toList()..sort((a, b) => a.timestamp.compareTo(b.timestamp));
+    try {
+      print('📥 Loading messages between $userId1 and $userId2');
+      
+      final token = await _getToken();
+      if (token == null) {
+        print('❌ No token found');
+        return [];
+      }
+      
+      final response = await ApiService.get(
+        '/messages/conversation/$userId2',
+        token: token,
+      );
+      
+      if (response.statusCode == 200) {
+        final List<dynamic> data = json.decode(response.body);
+        final messages = data.map((json) => Message.fromJson(json)).toList();
+        print('✅ Loaded ${messages.length} messages');
+        return messages;
+      }
+      
+      print('❌ Failed to load messages: ${response.statusCode}');
+      return [];
+    } catch (e) {
+      print('❌ Error loading messages: $e');
+      return [];
+    }
   }
 
   // Get all conversations for a user (returns list of user IDs they've chatted with)
   Future<List<String>> getConversations(String userId) async {
-    final messages = await getMessages();
-    final Set<String> conversations = {};
-    
-    for (final message in messages) {
-      if (message.senderId == userId) {
-        conversations.add(message.receiverId);
-      } else if (message.receiverId == userId) {
-        conversations.add(message.senderId);
+    try {
+      print('📋 Loading conversations for user $userId');
+      
+      final token = await _getToken();
+      if (token == null) {
+        print('❌ No token found');
+        return [];
       }
+      
+      final response = await ApiService.get(
+        '/messages/conversations',
+        token: token,
+      );
+      
+      if (response.statusCode == 200) {
+        final List<dynamic> data = json.decode(response.body);
+        final conversations = data.map((id) => id.toString()).toList();
+        print('✅ Found ${conversations.length} conversations');
+        return conversations;
+      }
+      
+      print('❌ Failed to load conversations: ${response.statusCode}');
+      return [];
+    } catch (e) {
+      print('❌ Error loading conversations: $e');
+      return [];
     }
-    
-    return conversations.toList();
   }
 
   // Mark messages as read
   Future<bool> markMessagesAsRead(String senderId, String receiverId) async {
     try {
-      final messages = await getMessages();
-      bool hasChanges = false;
+      print('✔️ Marking messages from $senderId as read');
       
-      for (int i = 0; i < messages.length; i++) {
-        final message = messages[i];
-        if (message.senderId == senderId && 
-            message.receiverId == receiverId && 
-            !message.isRead) {
-          messages[i] = message.copyWith(isRead: true);
-          hasChanges = true;
-        }
+      final token = await _getToken();
+      if (token == null) {
+        print('❌ No token found');
+        return false;
       }
       
-      if (hasChanges) {
-        await _saveMessages(messages);
+      final response = await ApiService.patch(
+        '/messages/read/$senderId',
+        body: {},
+        token: token,
+      );
+      
+      if (response.statusCode == 200) {
+        print('✅ Messages marked as read');
+        return true;
       }
       
-      return true;
+      print('❌ Failed to mark messages as read: ${response.statusCode}');
+      return false;
     } catch (e) {
+      print('❌ Error marking messages as read: $e');
       return false;
     }
   }
 
   // Get unread message count for a user
   Future<int> getUnreadMessageCount(String userId) async {
-    final messages = await getMessages();
-    
-    return messages.where((msg) =>
-      msg.receiverId == userId && !msg.isRead
-    ).length;
+    try {
+      final token = await _getToken();
+      if (token == null) return 0;
+      
+      final response = await ApiService.get(
+        '/messages/unread/count',
+        token: token,
+      );
+      
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        return data['count'] ?? 0;
+      }
+      
+      return 0;
+    } catch (e) {
+      print('❌ Error getting unread count: $e');
+      return 0;
+    }
   }
 
   // Get unread message count between two specific users
   Future<int> getUnreadMessageCountBetweenUsers(String currentUserId, String otherUserId) async {
-    final messages = await getMessages();
-    
-    return messages.where((msg) =>
-      msg.senderId == otherUserId && 
-      msg.receiverId == currentUserId && 
-      !msg.isRead
-    ).length;
+    try {
+      final token = await _getToken();
+      if (token == null) return 0;
+      
+      final response = await ApiService.get(
+        '/messages/unread/count/$otherUserId',
+        token: token,
+      );
+      
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        return data['count'] ?? 0;
+      }
+      
+      return 0;
+    } catch (e) {
+      print('❌ Error getting unread count: $e');
+      return 0;
+    }
   }
 
   // Delete all messages between two users
   Future<bool> deleteConversation(String userId1, String userId2) async {
     try {
-      final messages = await getMessages();
+      print('🗑️ Deleting conversation between $userId1 and $userId2');
       
-      messages.removeWhere((msg) =>
-        (msg.senderId == userId1 && msg.receiverId == userId2) ||
-        (msg.senderId == userId2 && msg.receiverId == userId1)
+      final token = await _getToken();
+      if (token == null) {
+        print('❌ No token found');
+        return false;
+      }
+      
+      final response = await ApiService.delete(
+        '/messages/conversation/$userId2',
+        token: token,
       );
       
-      await _saveMessages(messages);
-      return true;
+      if (response.statusCode == 200) {
+        print('✅ Conversation deleted');
+        return true;
+      }
+      
+      print('❌ Failed to delete conversation: ${response.statusCode}');
+      return false;
     } catch (e) {
+      print('❌ Error deleting conversation: $e');
       return false;
     }
   }
 
   // Get last message between two users
   Future<Message?> getLastMessage(String userId1, String userId2) async {
-    final messages = await getMessagesBetweenUsers(userId1, userId2);
-    
-    if (messages.isEmpty) return null;
-    
-    return messages.last;
+    try {
+      final messages = await getMessagesBetweenUsers(userId1, userId2);
+      
+      if (messages.isEmpty) return null;
+      
+      return messages.last;
+    } catch (e) {
+      print('❌ Error getting last message: $e');
+      return null;
+    }
   }
 }

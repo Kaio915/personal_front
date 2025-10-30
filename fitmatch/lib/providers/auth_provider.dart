@@ -67,17 +67,17 @@ class AuthProvider with ChangeNotifier {
     notifyListeners();
 
     try {
-      final success = await _authService.signup(userData, password);
+      final result = await _authService.signup(userData, password);
       
-      if (success) {
+      if (result['success'] == true) {
         _errorMessage = null;
       } else {
-        _errorMessage = 'Email já cadastrado ou erro no cadastro';
+        _errorMessage = result['message'] ?? 'Erro ao fazer cadastro';
       }
       
       _isLoading = false;
       notifyListeners();
-      return success;
+      return result['success'] ?? false;
     } catch (e) {
       _errorMessage = 'Erro ao fazer cadastro: $e';
       _isLoading = false;

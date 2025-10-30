@@ -460,7 +460,7 @@ class _SignupScreenState extends State<SignupScreen> {
             obscureText: _obscurePassword,
             decoration: InputDecoration(
               labelText: 'Senha',
-              hintText: 'Mínimo 6 caracteres',
+              hintText: 'Mínimo 8 caracteres',
               prefixIcon: const Icon(Icons.lock_outlined),
               suffixIcon: IconButton(
                 icon: Icon(
@@ -479,8 +479,8 @@ class _SignupScreenState extends State<SignupScreen> {
               if (value == null || value.isEmpty) {
                 return 'Senha é obrigatória';
               }
-              if (value.length < 6) {
-                return 'Senha deve ter pelo menos 6 caracteres';
+              if (value.length < 8) {
+                return 'Senha deve ter pelo menos 8 caracteres';
               }
               return null;
             },

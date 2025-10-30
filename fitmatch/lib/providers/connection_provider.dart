@@ -1,11 +1,9 @@
 import 'package:flutter/foundation.dart';
 import '../models/connection.dart';
 import '../models/user.dart';
-import '../services/connection_service.dart';
 import '../services/auth_service.dart';
 
 class ConnectionProvider with ChangeNotifier {
-  final ConnectionService _connectionService = ConnectionService();
   final AuthService _authService = AuthService();
   
   List<Connection> _connections = [];
@@ -20,24 +18,14 @@ class ConnectionProvider with ChangeNotifier {
 
   // Initialize
   Future<void> initialize() async {
-    await loadConnections();
     await loadTrainers();
   }
 
-  // Load all connections
+  // Load all connections (deprecated - usando novo sistema)
   Future<void> loadConnections() async {
-    _isLoading = true;
+    // Este método não faz nada agora pois as conexões são carregadas diretamente nas telas
+    _isLoading = false;
     notifyListeners();
-
-    try {
-      _connections = await _connectionService.getConnections();
-      _errorMessage = null;
-    } catch (e) {
-      _errorMessage = 'Erro ao carregar conexões: $e';
-    } finally {
-      _isLoading = false;
-      notifyListeners();
-    }
   }
 
   // Load all trainers
@@ -52,175 +40,24 @@ class ConnectionProvider with ChangeNotifier {
     }
   }
 
-  // Get connections for a specific student
+  // Get connections for a specific student (mantido por compatibilidade mas retorna lista vazia)
   List<Connection> getStudentConnections(String studentId) {
-    return _connections.where((conn) => conn.studentId == studentId).toList();
+    return [];
   }
 
-  // Get connections for a specific trainer
+  // Get connections for a specific trainer (mantido por compatibilidade mas retorna lista vazia)
   List<Connection> getTrainerConnections(String trainerId) {
-    return _connections.where((conn) => conn.trainerId == trainerId).toList();
+    return [];
   }
 
-  // Get connected trainer for a student
+  // Get connected trainer for a student (mantido por compatibilidade mas retorna null)
   User? getConnectedTrainer(String studentId) {
-    final activeConnection = _connections.where((conn) =>
-      conn.studentId == studentId && 
-      conn.status == ConnectionStatus.accepted
-    ).firstOrNull;
-    
-    if (activeConnection == null) return null;
-    
-    return _trainers.where((trainer) => trainer.id == activeConnection.trainerId).firstOrNull;
+    return null;
   }
 
-  // Get connected students for a trainer
+  // Get connected students for a trainer (mantido por compatibilidade mas retorna lista vazia)
   Future<List<User>> getConnectedStudents(String trainerId) async {
-    final activeConnections = _connections.where((conn) =>
-      conn.trainerId == trainerId && 
-      conn.status == ConnectionStatus.accepted
-    ).toList();
-    
-    final users = await _authService.getUsers();
-    final students = <User>[];
-    
-    for (final connection in activeConnections) {
-      final student = users.where((user) => user.id == connection.studentId).firstOrNull;
-      if (student != null) {
-        students.add(student);
-      }
-    }
-    
-    return students;
-  }
-
-  // Send connection request
-  Future<bool> sendConnectionRequest({
-    required String trainerId,
-    required String studentId,
-    required String studentName,
-    required String studentEmail,
-  }) async {
-    _isLoading = true;
-    notifyListeners();
-
-    try {
-      final success = await _connectionService.sendConnectionRequest(
-        trainerId: trainerId,
-        studentId: studentId,
-        studentName: studentName,
-        studentEmail: studentEmail,
-      );
-      
-      if (success) {
-        await loadConnections(); // Refresh connections
-        _errorMessage = null;
-      } else {
-        _errorMessage = 'Erro ao enviar solicitação de conexão';
-      }
-      
-      _isLoading = false;
-      notifyListeners();
-      return success;
-    } catch (e) {
-      _errorMessage = 'Erro ao enviar solicitação: $e';
-      _isLoading = false;
-      notifyListeners();
-      return false;
-    }
-  }
-
-  // Accept connection request
-  Future<bool> acceptConnectionRequest(String connectionId) async {
-    try {
-      final success = await _connectionService.acceptConnectionRequest(connectionId);
-      
-      if (success) {
-        await loadConnections(); // Refresh connections
-        _errorMessage = null;
-      } else {
-        _errorMessage = 'Erro ao aceitar solicitação';
-      }
-      
-      notifyListeners();
-      return success;
-    } catch (e) {
-      _errorMessage = 'Erro ao aceitar solicitação: $e';
-      notifyListeners();
-      return false;
-    }
-  }
-
-  // Reject connection request
-  Future<bool> rejectConnectionRequest(String connectionId) async {
-    try {
-      final success = await _connectionService.rejectConnectionRequest(connectionId);
-      
-      if (success) {
-        await loadConnections(); // Refresh connections
-        _errorMessage = null;
-      } else {
-        _errorMessage = 'Erro ao rejeitar solicitação';
-      }
-      
-      notifyListeners();
-      return success;
-    } catch (e) {
-      _errorMessage = 'Erro ao rejeitar solicitação: $e';
-      notifyListeners();
-      return false;
-    }
-  }
-
-  // Disconnect connection
-  Future<bool> disconnectConnection(String studentId, String trainerId) async {
-    try {
-      final success = await _connectionService.disconnectConnection(studentId, trainerId);
-      
-      if (success) {
-        await loadConnections(); // Refresh connections
-        _errorMessage = null;
-      } else {
-        _errorMessage = 'Erro ao desconectar';
-      }
-      
-      notifyListeners();
-      return success;
-    } catch (e) {
-      _errorMessage = 'Erro ao desconectar: $e';
-      notifyListeners();
-      return false;
-    }
-  }
-
-  // Rate trainer
-  Future<bool> rateTrainer(String studentId, String trainerId, int rating) async {
-    try {
-      final success = await _connectionService.rateTrainer(studentId, trainerId, rating);
-      
-      if (success) {
-        await loadConnections(); // Refresh connections
-        _errorMessage = null;
-      } else {
-        _errorMessage = 'Erro ao avaliar personal trainer';
-      }
-      
-      notifyListeners();
-      return success;
-    } catch (e) {
-      _errorMessage = 'Erro ao avaliar: $e';
-      notifyListeners();
-      return false;
-    }
-  }
-
-  // Get trainer average rating
-  Future<double> getTrainerAverageRating(String trainerId) async {
-    try {
-      return await _connectionService.getTrainerAverageRating(trainerId);
-    } catch (e) {
-      return 0.0;
-    }
+    return [];
   }
 
   // Search trainers

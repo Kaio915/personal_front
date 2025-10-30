@@ -8,7 +8,16 @@ import 'providers/chat_provider.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  runApp(const FitMatchApp());
+  runApp(
+    MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => AuthProvider()),
+        ChangeNotifierProvider(create: (_) => ConnectionProvider()),
+        ChangeNotifierProvider(create: (_) => ChatProvider()),
+      ],
+      child: const FitMatchApp(),
+    ),
+  );
 }
 
 class FitMatchApp extends StatefulWidget {
@@ -31,22 +40,15 @@ class _FitMatchAppState extends State<FitMatchApp> {
 
   @override
   Widget build(BuildContext context) {
-    return MultiProvider(
-      providers: [
-        ChangeNotifierProvider(create: (_) => AuthProvider()),
-        ChangeNotifierProvider(create: (_) => ConnectionProvider()),
-        ChangeNotifierProvider(create: (_) => ChatProvider()),
-      ],
-      child: Consumer<AuthProvider>(
-        builder: (context, authProvider, child) {
-          return MaterialApp.router(
-            title: 'FitConnect',
-            debugShowCheckedModeBanner: false,
-            theme: AppTheme.lightTheme,
-            routerConfig: AppRouter.router,
-          );
-        },
-      ),
+    return Consumer<AuthProvider>(
+      builder: (context, authProvider, child) {
+        return MaterialApp.router(
+          title: 'FitConnect',
+          debugShowCheckedModeBanner: false,
+          theme: AppTheme.lightTheme,
+          routerConfig: AppRouter.router,
+        );
+      },
     );
   }
 }
