@@ -22,28 +22,18 @@ class HomeScreen extends StatelessWidget {
                 child: Padding(
                   padding: const EdgeInsets.all(16.0),
                   child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Row(
-                        children: [
-                          Icon(
-                            Icons.fitness_center,
-                            size: 32,
-                            color: Theme.of(context).colorScheme.primary,
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            'FitConnect',
-                            style: Theme.of(context).textTheme.headlineSmall
-                                ?.copyWith(fontWeight: FontWeight.bold),
-                          ),
-                        ],
+                      Icon(
+                        Icons.fitness_center,
+                        size: 32,
+                        color: Theme.of(context).colorScheme.primary,
                       ),
-                      ElevatedButton(
-                        onPressed: () {
-                          context.goToLogin();
-                        },
-                        child: const Text('Entrar'),
+                      const SizedBox(width: 8),
+                      Text(
+                        'FitConnect',
+                        style: Theme.of(context).textTheme.headlineSmall
+                            ?.copyWith(fontWeight: FontWeight.bold),
                       ),
                     ],
                   ),

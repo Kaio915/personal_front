@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
 import '../../providers/auth_provider.dart';
 import '../../models/user.dart';
+import '../../utils/router.dart';
 
 class SignupScreen extends StatefulWidget {
   final String? userType;
@@ -90,16 +91,91 @@ class _SignupScreenState extends State<SignupScreen> {
       });
     }
 
+    print('🔄 Enviando cadastro para o backend...');
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     final success = await authProvider.signup(
       userData,
       _passwordController.text,
     );
 
+    print('📊 Resultado do cadastro: success = $success');
+    
     if (!mounted) return;
 
     if (success) {
-      _showSuccessDialog();
+      // Redirecionar direto para a tela de login específica
+      final userTypeParam = _selectedUserType == UserType.student ? 'student' : 'trainer';
+      
+      print('✅ Cadastro bem-sucedido! Mostrando diálogo de confirmação');
+      
+      // Mostrar diálogo de sucesso que requer confirmação
+      showDialog(
+        context: context,
+        barrierDismissible: false, // Usuário precisa clicar em OK
+        builder: (context) => AlertDialog(
+          icon: Icon(
+            Icons.check_circle_outline,
+            size: 64,
+            color: Colors.green.shade600,
+          ),
+          title: const Text(
+            'Cadastro Realizado!',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontWeight: FontWeight.bold),
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                _selectedUserType == UserType.student 
+                  ? 'Seu cadastro como Aluno foi enviado para análise.'
+                  : 'Seu cadastro como Personal Trainer foi enviado para análise.',
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.blue.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.blue.shade200),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.info_outline, color: Colors.blue.shade700, size: 20),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Aguarde a aprovação do administrador para fazer login.',
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: Colors.blue.shade900,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: () {
+                  Navigator.of(context).pop(); // Fecha o diálogo
+                  print('🔄 Redirecionando para login tipo: $userTypeParam');
+                  context.goToLogin(userType: userTypeParam);
+                },
+                style: ElevatedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                ),
+                child: const Text('OK, Entendi'),
+              ),
+            ),
+          ],
+        ),
+      );
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -110,29 +186,21 @@ class _SignupScreenState extends State<SignupScreen> {
     }
   }
 
-  void _showSuccessDialog() {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        title: const Text('Cadastro Realizado!'),
-        content: const Text(
-          'Seu cadastro foi enviado para análise. Você receberá uma confirmação quando for aprovado.',
-        ),
-        actions: [
-          ElevatedButton(
-            onPressed: () {
-              Navigator.of(context).pop();
-              context.go('/login');
-            },
-            child: const Text('Ir para Login'),
-          ),
-        ],
-      ),
-    );
-  }
-
   void _nextPage() {
+    // Validar o formulário antes de avançar
+    if (!_formKey.currentState!.validate()) {
+      print('❌ Validação falhou - não pode avançar');
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Por favor, corrija os erros antes de continuar'),
+          backgroundColor: Colors.red,
+          duration: Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
+    
+    print('✅ Validação OK - avançando para próxima página');
     if (_currentPage < 1) {
       _pageController.nextPage(
         duration: const Duration(milliseconds: 300),
@@ -199,6 +267,7 @@ class _SignupScreenState extends State<SignupScreen> {
                 key: _formKey,
                 child: PageView(
                   controller: _pageController,
+                  physics: const NeverScrollableScrollPhysics(), // Impede arrastar entre páginas
                   onPageChanged: (page) {
                     setState(() {
                       _currentPage = page;
@@ -480,7 +549,7 @@ class _SignupScreenState extends State<SignupScreen> {
                 return 'Senha é obrigatória';
               }
               if (value.length < 8) {
-                return 'Senha deve ter pelo menos 8 caracteres';
+                return 'Senha deve ter no mínimo 8 caracteres';
               }
               return null;
             },
@@ -510,12 +579,22 @@ class _SignupScreenState extends State<SignupScreen> {
               ),
             ),
             validator: (value) {
+              print('🔍 Validando confirmar senha: "$value"');
+              print('🔍 Senha original: "${_passwordController.text}"');
+              
               if (value == null || value.isEmpty) {
+                print('❌ Confirmação vazia');
                 return 'Confirmação de senha é obrigatória';
               }
-              if (value != _passwordController.text) {
-                return 'Senhas não coincidem';
+              if (value.length < 8) {
+                print('❌ Confirmação menor que 8 caracteres');
+                return 'Confirmação deve ter no mínimo 8 caracteres';
               }
+              if (value != _passwordController.text) {
+                print('❌ Senhas diferentes!');
+                return 'As senhas não coincidem';
+              }
+              print('✅ Senhas coincidem');
               return null;
             },
           ),

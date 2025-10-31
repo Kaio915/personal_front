@@ -33,13 +33,13 @@ class AuthProvider with ChangeNotifier {
   }
 
   // Login
-  Future<bool> login(String email, String password) async {
+  Future<bool> login(String email, String password, {String? userType}) async {
     _isLoading = true;
     _errorMessage = null;
     notifyListeners();
 
     try {
-      final user = await _authService.login(email, password);
+      final user = await _authService.login(email, password, userType: userType);
       
       if (user != null) {
         _currentUser = user;

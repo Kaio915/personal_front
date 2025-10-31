@@ -89,15 +89,22 @@ class AuthService {
   }
 
   // Login user via API
-  Future<User?> login(String email, String password) async {
+  Future<User?> login(String email, String password, {String? userType}) async {
     try {
       print('=== INICIANDO LOGIN ===');
       print('Email: $email');
+      print('User Type: $userType');
       print('URL: ${Config.apiUrl}/auth/login');
+      
+      // Construir URL com query parameter se userType for fornecido
+      String endpoint = '/auth/login';
+      if (userType != null) {
+        endpoint += '?user_type=$userType';
+      }
       
       // Fazer requisição de login para a API
       final response = await ApiService.postForm(
-        '/auth/login',
+        endpoint,
         body: {
           'username': email, // OAuth2 usa 'username' não 'email'
           'password': password,

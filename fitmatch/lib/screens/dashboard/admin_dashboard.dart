@@ -83,33 +83,169 @@ class _AdminDashboardState extends State<AdminDashboard>
   }
 
   Future<void> _updateApproval(int userId, bool approved) async {
+    debugPrint('═══════════════════════════════════════');
+    debugPrint('🔄 _updateApproval INICIADO');
+    debugPrint('userId: $userId (tipo: ${userId.runtimeType})');
+    debugPrint('approved: $approved');
+    debugPrint('📊 ANTES - _pendingUsers.length: ${_pendingUsers.length}');
+    debugPrint('📊 ANTES - _allUsers.length: ${_allUsers.length}');
+    
+    // Encontrar o usuário antes de remover
+    final userIdStr = userId.toString();
+    Map<String, dynamic>? foundUser;
+    
+    // Procurar o usuário em _pendingUsers
+    for (var u in _pendingUsers) {
+      if (u['id'].toString() == userIdStr) {
+        foundUser = Map<String, dynamic>.from(u); // Criar cópia
+        debugPrint('👤 Usuário encontrado: ${foundUser['email']}');
+        break;
+      }
+    }
+    
+    if (foundUser == null) {
+      debugPrint('❌ Usuário $userId não encontrado em _pendingUsers');
+      return;
+    }
+    
+    // Remover da lista de pendentes e atualizar _allUsers
+    debugPrint('🗑️ Chamando setState para ${approved ? 'aprovar' : 'rejeitar'}...');
+    setState(() {
+      // Remover de pendentes
+      _pendingUsers.removeWhere((user) {
+        final currentId = user['id'].toString();
+        final match = currentId == userIdStr;
+        if (match) debugPrint('  ✓ Removido de _pendingUsers: ${user['email']}');
+        return match;
+      });
+      
+      if (approved) {
+        // Se APROVADO, atualizar o status e adicionar à lista de todos
+        foundUser!['approved'] = true;
+        
+        // Verificar se já não está em _allUsers (evitar duplicação)
+        final alreadyExists = _allUsers.any((u) => u['id'].toString() == userIdStr);
+        if (!alreadyExists) {
+          _allUsers.add(foundUser);
+          debugPrint('  ✓ Adicionado a _allUsers: ${foundUser['email']}');
+        } else {
+          // Se já existe, atualizar o status
+          final index = _allUsers.indexWhere((u) => u['id'].toString() == userIdStr);
+          if (index >= 0) {
+            _allUsers[index]['approved'] = true;
+            debugPrint('  ✓ Atualizado em _allUsers: ${foundUser['email']}');
+          }
+        }
+      } else {
+        // Se REJEITADO, remover de _allUsers também
+        _allUsers.removeWhere((user) {
+          final currentId = user['id'].toString();
+          final match = currentId == userIdStr;
+          if (match) debugPrint('  ✓ Removido de _allUsers: ${user['email']}');
+          return match;
+        });
+      }
+    });
+    
+    debugPrint('✅ DEPOIS DO setState - _pendingUsers.length: ${_pendingUsers.length}');
+    debugPrint('✅ DEPOIS DO setState - _allUsers.length: ${_allUsers.length}');
+    debugPrint('═══════════════════════════════════════');
+
     try {
       final token = await AuthService().getToken();
       
-      final response = await http.patch(
-        Uri.parse('${Config.apiUrl}/users/$userId/approval'),
-        headers: {
-          'Authorization': 'Bearer $token',
-          'Content-Type': 'application/json',
-        },
-        body: json.encode({'approved': approved}),
-      );
-      
-      if (response.statusCode == 200) {
-        await _loadData();
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                approved ? 'Usuário aprovado!' : 'Usuário rejeitado',
+      if (approved) {
+        // APROVAR: Usar PATCH para marcar como aprovado
+        debugPrint('📡 Enviando PATCH para aprovar...');
+        final response = await http.patch(
+          Uri.parse('${Config.apiUrl}/users/$userId/approval'),
+          headers: {
+            'Authorization': 'Bearer $token',
+            'Content-Type': 'application/json',
+          },
+          body: json.encode({'approved': true}),
+        );
+        
+        debugPrint('📨 Resposta PATCH: ${response.statusCode}');
+        
+        if (response.statusCode == 200) {
+          debugPrint('✅ Usuário aprovado com sucesso!');
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Usuário aprovado!'),
+                backgroundColor: Colors.green,
+                duration: Duration(seconds: 2),
               ),
-              backgroundColor: approved ? Colors.green : Colors.orange,
-            ),
+            );
+          }
+        } else {
+          debugPrint('❌ Erro ao aprovar: ${response.statusCode} - ${response.body}');
+          await _loadData(); // Restaurar estado
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Erro ao aprovar usuário'),
+                backgroundColor: Colors.red,
+              ),
+            );
+          }
+        }
+      } else {
+        // REJEITAR: Usar DELETE para remover completamente
+        debugPrint('📡 Enviando DELETE para rejeitar...');
+        
+        try {
+          final response = await http.delete(
+            Uri.parse('${Config.apiUrl}/users/$userId'),
+            headers: {
+              'Authorization': 'Bearer $token',
+            },
           );
+          
+          debugPrint('📨 Resposta DELETE: ${response.statusCode}');
+          
+          if (response.statusCode == 200 || response.statusCode == 204) {
+            debugPrint('✅ Usuário deletado com sucesso!');
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Usuário rejeitado e removido'),
+                  backgroundColor: Colors.orange,
+                  duration: Duration(seconds: 2),
+                ),
+              );
+            }
+          } else {
+            debugPrint('❌ Erro ao deletar: ${response.statusCode}');
+            await _loadData(); // Restaurar estado
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Erro ao rejeitar usuário'),
+                  backgroundColor: Colors.red,
+                ),
+              );
+            }
+          }
+        } catch (deleteError) {
+          // Ignorar erros de parsing - o importante é que o usuário foi removido localmente
+          debugPrint('⚠️ Erro ao fazer DELETE (mas usuário já foi removido localmente): $deleteError');
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Usuário rejeitado e removido'),
+                backgroundColor: Colors.orange,
+                duration: Duration(seconds: 2),
+              ),
+            );
+          }
         }
       }
     } catch (e) {
-      debugPrint('Erro: $e');
+      debugPrint('❌ Exceção: $e');
+      // Se der erro, recarregar para restaurar o estado
+      await _loadData();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -201,6 +337,7 @@ class _AdminDashboardState extends State<AdminDashboard>
     }
 
     return ListView.builder(
+      key: ValueKey(_pendingUsers.length), // Força rebuild quando o tamanho muda
       padding: const EdgeInsets.all(16),
       itemCount: _pendingUsers.length,
       itemBuilder: (context, index) {

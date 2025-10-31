@@ -20,6 +20,12 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _obscurePassword = true;
 
   @override
+  void initState() {
+    super.initState();
+    print('🔍 LoginScreen iniciada com userType: ${widget.userType}');
+  }
+
+  @override
   void dispose() {
     _emailController.dispose();
     _passwordController.dispose();
@@ -33,6 +39,7 @@ class _LoginScreenState extends State<LoginScreen> {
     final success = await authProvider.login(
       _emailController.text.trim(),
       _passwordController.text,
+      userType: widget.userType, // Passa o tipo de usuário para validação
     );
 
     if (!mounted) return;
@@ -75,13 +82,44 @@ class _LoginScreenState extends State<LoginScreen> {
 
                   // Logo and title
                   Icon(
-                    Icons.fitness_center,
+                    widget.userType == 'student' 
+                        ? Icons.school
+                        : widget.userType == 'trainer'
+                            ? Icons.fitness_center
+                            : Icons.fitness_center,
                     size: 64,
                     color: Theme.of(context).colorScheme.primary,
                   ),
                   const SizedBox(height: 16),
+                  
+                  // Badge de tipo de usuário
+                  if (widget.userType != null)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: widget.userType == 'student' 
+                            ? Colors.blue.shade100 
+                            : Colors.orange.shade100,
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Text(
+                        widget.userType == 'student' ? '🎓 ALUNO' : '💪 PERSONAL TRAINER',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: widget.userType == 'student' 
+                              ? Colors.blue.shade900 
+                              : Colors.orange.shade900,
+                        ),
+                      ),
+                    ),
+                  const SizedBox(height: 16),
+                  
                   Text(
-                    'Entrar',
+                    widget.userType == 'student' 
+                        ? 'Login como Aluno'
+                        : widget.userType == 'trainer'
+                            ? 'Login como Personal Trainer'
+                            : 'Entrar',
                     style: Theme.of(context).textTheme.headlineMedium?.copyWith(
                       fontWeight: FontWeight.bold,
                     ),
