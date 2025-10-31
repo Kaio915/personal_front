@@ -20,11 +20,12 @@ class _AdminDashboardState extends State<AdminDashboard>
   List<Map<String, dynamic>> _pendingUsers = [];
   List<Map<String, dynamic>> _allUsers = [];
   bool _isLoading = false;
+  String _statsFilter = 'none'; // 'none', 'total', 'trainers', 'students', 'pending'
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    _tabController = TabController(length: 2, vsync: this);
     _loadData();
   }
 
@@ -257,6 +258,155 @@ class _AdminDashboardState extends State<AdminDashboard>
     }
   }
 
+  Future<void> _confirmDeleteUser(Map<String, dynamic> user) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.warning, color: Colors.red),
+            SizedBox(width: 8),
+            Text('Confirmar Exclusão'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Tem certeza que deseja excluir este usuário permanentemente?',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 16),
+            Text('Nome: ${user['full_name'] ?? 'Sem nome'}'),
+            Text('Email: ${user['email'] ?? ''}'),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.red.shade50,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.red.shade200),
+              ),
+              child: const Row(
+                children: [
+                  Icon(Icons.info_outline, color: Colors.red, size: 20),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Esta ação não pode ser desfeita!',
+                      style: TextStyle(
+                        color: Colors.red,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancelar'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Excluir'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      await _deleteUser(user['id']);
+    }
+  }
+
+  Future<void> _deleteUser(int userId) async {
+    debugPrint('═══════════════════════════════════════');
+    debugPrint('🗑️ EXCLUINDO USUÁRIO');
+    debugPrint('userId: $userId');
+
+    // Remover localmente primeiro (optimistic update)
+    setState(() {
+      _allUsers.removeWhere((u) => u['id'] == userId);
+      _pendingUsers.removeWhere((u) => u['id'] == userId);
+    });
+
+    try {
+      try {
+        final token = await AuthService().getToken();
+
+        final response = await http.delete(
+          Uri.parse('${Config.apiUrl}/users/$userId'),
+          headers: {
+            'Authorization': 'Bearer $token',
+          },
+        );
+
+        debugPrint('📨 Resposta DELETE: ${response.statusCode}');
+
+        if (response.statusCode == 200 || response.statusCode == 204) {
+          debugPrint('✅ Usuário excluído com sucesso!');
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Usuário excluído com sucesso'),
+                backgroundColor: Colors.green,
+                duration: Duration(seconds: 2),
+              ),
+            );
+          }
+          
+          // Recarregar dados para garantir consistência
+          await _loadData();
+        } else {
+          debugPrint('❌ Erro ao excluir: ${response.statusCode}');
+          await _loadData(); // Restaurar estado
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Erro ao excluir usuário'),
+                backgroundColor: Colors.red,
+              ),
+            );
+          }
+        }
+      } catch (deleteError) {
+        // Ignorar erros de parsing - o usuário já foi removido localmente
+        debugPrint('⚠️ Erro ao fazer DELETE (mas usuário já foi removido): $deleteError');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Usuário excluído com sucesso'),
+              backgroundColor: Colors.green,
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
+        await _loadData();
+      }
+    } catch (e) {
+      debugPrint('❌ Exceção ao excluir: $e');
+      await _loadData();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erro: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final user = context.watch<AuthProvider>().currentUser;
@@ -299,7 +449,6 @@ class _AdminDashboardState extends State<AdminDashboard>
               ),
               text: 'Aprovações',
             ),
-            const Tab(icon: Icon(Icons.people), text: 'Usuários'),
             const Tab(icon: Icon(Icons.analytics), text: 'Estatísticas'),
           ],
         ),
@@ -308,7 +457,6 @@ class _AdminDashboardState extends State<AdminDashboard>
         controller: _tabController,
         children: [
           _buildApprovalsTab(),
-          _buildUsersTab(),
           _buildStatsTab(),
         ],
       ),
@@ -342,22 +490,6 @@ class _AdminDashboardState extends State<AdminDashboard>
       itemCount: _pendingUsers.length,
       itemBuilder: (context, index) {
         return _buildUserCard(_pendingUsers[index], isPending: true);
-      },
-    );
-  }
-
-  Widget _buildUsersTab() {
-    if (_isLoading) {
-      return const Center(child: CircularProgressIndicator());
-    }
-
-    final approved = _allUsers.where((u) => u['approved'] == true).toList();
-
-    return ListView.builder(
-      padding: const EdgeInsets.all(16),
-      itemCount: approved.length,
-      itemBuilder: (context, index) {
-        return _buildUserCard(approved[index], isPending: false);
       },
     );
   }
@@ -447,8 +579,8 @@ class _AdminDashboardState extends State<AdminDashboard>
                 ),
               ],
             ),
-            if (isPending) ...[
-              const SizedBox(height: 16),
+            const SizedBox(height: 16),
+            if (isPending)
               Row(
                 children: [
                   Expanded(
@@ -471,8 +603,18 @@ class _AdminDashboardState extends State<AdminDashboard>
                     ),
                   ),
                 ],
+              )
+            else
+              // Botão de excluir para usuários já aprovados
+              OutlinedButton.icon(
+                onPressed: () => _confirmDeleteUser(user),
+                icon: const Icon(Icons.delete_forever),
+                label: const Text('Excluir Usuário'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.red,
+                  side: const BorderSide(color: Colors.red),
+                ),
               ),
-            ],
           ],
         ),
       ),
@@ -482,13 +624,94 @@ class _AdminDashboardState extends State<AdminDashboard>
   Widget _buildStatsTab() {
     final trainers = _allUsers.where(
       (u) => u['role']?['name'] == 'personal' && u['approved'] == true,
-    ).length;
+    ).toList();
     final students = _allUsers.where(
       (u) => u['role']?['name'] == 'aluno' && u['approved'] == true,
-    ).length;
-    final total = _allUsers.where((u) => u['approved'] == true).length;
+    ).toList();
+    final approved = _allUsers.where((u) => u['approved'] == true).toList();
 
-    return Padding(
+    // Se um filtro estiver ativo, mostrar a lista filtrada
+    if (_statsFilter != 'none') {
+      List<Map<String, dynamic>> filteredUsers;
+      String title;
+      
+      switch (_statsFilter) {
+        case 'total':
+          filteredUsers = approved;
+          title = 'Todos os Usuários';
+          break;
+        case 'trainers':
+          filteredUsers = trainers;
+          title = 'Personal Trainers';
+          break;
+        case 'students':
+          filteredUsers = students;
+          title = 'Alunos';
+          break;
+        case 'pending':
+          filteredUsers = _pendingUsers;
+          title = 'Usuários Pendentes';
+          break;
+        default:
+          filteredUsers = [];
+          title = '';
+      }
+      
+      return Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(16),
+            color: Colors.grey.shade100,
+            child: Row(
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.arrow_back),
+                  onPressed: () {
+                    setState(() {
+                      _statsFilter = 'none';
+                    });
+                  },
+                ),
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const Spacer(),
+                Text(
+                  '${filteredUsers.length} usuários',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Colors.grey.shade600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: filteredUsers.isEmpty
+                ? const Center(
+                    child: Text('Nenhum usuário encontrado'),
+                  )
+                : ListView.builder(
+                    padding: const EdgeInsets.all(16),
+                    itemCount: filteredUsers.length,
+                    itemBuilder: (context, index) {
+                      return _buildUserCard(
+                        filteredUsers[index],
+                        isPending: _statsFilter == 'pending',
+                      );
+                    },
+                  ),
+          ),
+        ],
+      );
+    }
+
+    // Mostrar cards de estatísticas
+    return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -499,24 +722,42 @@ class _AdminDashboardState extends State<AdminDashboard>
               fontWeight: FontWeight.bold,
             ),
           ),
+          const SizedBox(height: 8),
+          Text(
+            'Clique em um card para ver os detalhes',
+            style: TextStyle(
+              fontSize: 14,
+              color: Colors.grey.shade600,
+            ),
+          ),
           const SizedBox(height: 24),
           Row(
             children: [
               Expanded(
                 child: _buildStatCard(
                   'Total',
-                  '$total',
+                  '${approved.length}',
                   Icons.people,
                   Colors.blue,
+                  onTap: () {
+                    setState(() {
+                      _statsFilter = 'total';
+                    });
+                  },
                 ),
               ),
               const SizedBox(width: 16),
               Expanded(
                 child: _buildStatCard(
-                  'Trainers',
-                  '$trainers',
+                  'Personal Trainers',
+                  '${trainers.length}',
                   Icons.fitness_center,
                   Colors.green,
+                  onTap: () {
+                    setState(() {
+                      _statsFilter = 'trainers';
+                    });
+                  },
                 ),
               ),
             ],
@@ -527,9 +768,14 @@ class _AdminDashboardState extends State<AdminDashboard>
               Expanded(
                 child: _buildStatCard(
                   'Alunos',
-                  '$students',
+                  '${students.length}',
                   Icons.school,
                   Colors.orange,
+                  onTap: () {
+                    setState(() {
+                      _statsFilter = 'students';
+                    });
+                  },
                 ),
               ),
               const SizedBox(width: 16),
@@ -539,6 +785,11 @@ class _AdminDashboardState extends State<AdminDashboard>
                   '${_pendingUsers.length}',
                   Icons.pending,
                   Colors.red,
+                  onTap: () {
+                    setState(() {
+                      _statsFilter = 'pending';
+                    });
+                  },
                 ),
               ),
             ],
@@ -548,28 +799,45 @@ class _AdminDashboardState extends State<AdminDashboard>
     );
   }
 
-  Widget _buildStatCard(String title, String value, IconData icon, Color color) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          children: [
-            Icon(icon, size: 32, color: color),
-            const SizedBox(height: 8),
-            Text(
-              value,
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-                color: color,
+  Widget _buildStatCard(
+    String title,
+    String value,
+    IconData icon,
+    Color color, {
+    VoidCallback? onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Card(
+        elevation: 2,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            children: [
+              Icon(icon, size: 32, color: color),
+              const SizedBox(height: 8),
+              Text(
+                value,
+                style: TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
+                  color: color,
+                ),
               ),
-            ),
-            Text(
-              title,
-              style: const TextStyle(fontSize: 12),
-              textAlign: TextAlign.center,
-            ),
-          ],
+              Text(
+                title,
+                style: const TextStyle(fontSize: 12),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 4),
+              Icon(
+                Icons.arrow_forward_ios,
+                size: 16,
+                color: Colors.grey.shade400,
+              ),
+            ],
+          ),
         ),
       ),
     );

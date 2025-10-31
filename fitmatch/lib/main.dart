@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'utils/theme.dart';
@@ -8,16 +9,37 @@ import 'providers/chat_provider.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  runApp(
-    MultiProvider(
-      providers: [
-        ChangeNotifierProvider(create: (_) => AuthProvider()),
-        ChangeNotifierProvider(create: (_) => ConnectionProvider()),
-        ChangeNotifierProvider(create: (_) => ChatProvider()),
-      ],
-      child: const FitMatchApp(),
-    ),
-  );
+
+  // Global error handling to avoid the red error overlay for uncaught async
+  // exceptions during development. We still log the error so it can be
+  // diagnosed in the console.
+  FlutterError.onError = (FlutterErrorDetails details) {
+    // Forward Flutter framework errors to the current zone.
+    Zone.current.handleUncaughtError(details.exception, details.stack ?? StackTrace.current);
+  };
+
+  // Catch errors that escape the Flutter framework (Dart async errors).
+  runZonedGuarded(() {
+    runApp(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider(create: (_) => AuthProvider()),
+          ChangeNotifierProvider(create: (_) => ConnectionProvider()),
+          ChangeNotifierProvider(create: (_) => ChatProvider()),
+        ],
+        child: const FitMatchApp(),
+      ),
+    );
+  }, (error, stack) {
+    // Log uncaught errors. You can extend this to report errors to a
+    // remote logging service during development if needed.
+    // Keep the log concise so it's easy to spot in the terminal/browser console.
+    // NOTE: this prevents the red overlay from being shown; the underlying
+    // network issue should still be investigated with browser Network tab
+    // and backend logs.
+    debugPrint('Unhandled error (caught by runZonedGuarded): $error');
+    debugPrint('$stack');
+  });
 }
 
 class FitMatchApp extends StatefulWidget {
