@@ -18,11 +18,18 @@ class _LoginScreenState extends State<LoginScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   bool _obscurePassword = true;
+  bool _isLoggingIn = false; // Flag local para controlar loading
 
   @override
   void initState() {
     super.initState();
     print('🔍 LoginScreen iniciada com userType: ${widget.userType}');
+    
+    // Limpar os campos quando a tela for carregada
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _emailController.clear();
+      _passwordController.clear();
+    });
   }
 
   @override
@@ -34,23 +41,96 @@ class _LoginScreenState extends State<LoginScreen> {
 
   Future<void> _handleLogin() async {
     if (!_formKey.currentState!.validate()) return;
+    if (_isLoggingIn) return; // Previne múltiplas tentativas
 
+    setState(() {
+      _isLoggingIn = true;
+    });
+
+    // Capturar o ScaffoldMessenger antes do await para evitar problemas com contexto desmontado
+    final scaffoldMessenger = ScaffoldMessenger.of(context);
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
-    final success = await authProvider.login(
-      _emailController.text.trim(),
-      _passwordController.text,
-      userType: widget.userType, // Passa o tipo de usuário para validação
-    );
+    
+    try {
+      final success = await authProvider.login(
+        _emailController.text.trim(),
+        _passwordController.text,
+        userType: widget.userType, // Passa o tipo de usuário para validação
+      );
 
-    if (!mounted) return;
+      if (!mounted) return;
 
-    if (success) {
-      context.goToDashboard();
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (success) {
+        context.goToDashboard();
+      } else {
+        // Mostra erro mas NÃO volta para tela anterior
+        // Limpa o campo de senha para segurança
+        _passwordController.clear();
+        
+        setState(() {
+          _isLoggingIn = false;
+        });
+        
+        // Reseta a flag de tentativa de login para permitir navegação novamente
+        authProvider.resetLoginAttempt();
+        
+        // Usa o ScaffoldMessenger capturado antes do await
+        scaffoldMessenger.showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.error_outline, color: Colors.white),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    authProvider.errorMessage ?? 'Email ou senha incorretos',
+                    style: const TextStyle(fontSize: 15),
+                  ),
+                ),
+              ],
+            ),
+            backgroundColor: Colors.red.shade700,
+            duration: const Duration(seconds: 5),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
+            margin: const EdgeInsets.all(16),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        _passwordController.clear();
+        setState(() {
+          _isLoggingIn = false;
+        });
+        
+        // Reseta a flag de tentativa de login
+        authProvider.resetLoginAttempt();
+      }
+      
+      scaffoldMessenger.showSnackBar(
         SnackBar(
-          content: Text(authProvider.errorMessage ?? 'Erro ao fazer login'),
-          backgroundColor: Colors.red,
+          content: Row(
+            children: [
+              const Icon(Icons.error_outline, color: Colors.white),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  'Erro ao fazer login: $e',
+                  style: const TextStyle(fontSize: 15),
+                ),
+              ),
+            ],
+          ),
+          backgroundColor: Colors.red.shade700,
+          duration: const Duration(seconds: 5),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
+          margin: const EdgeInsets.all(16),
         ),
       );
     }
@@ -72,7 +152,13 @@ class _LoginScreenState extends State<LoginScreen> {
                   Align(
                     alignment: Alignment.centerLeft,
                     child: IconButton(
-                      onPressed: () => context.go('/'),
+                      onPressed: () {
+                        print('🔙 BOTÃO VOLTAR clicado - navegando para /');
+                        // Resetar a flag de login antes de navegar
+                        final authProvider = Provider.of<AuthProvider>(context, listen: false);
+                        authProvider.resetLoginAttempt();
+                        context.go('/');
+                      },
                       icon: const Icon(Icons.arrow_back),
                       tooltip: 'Voltar',
                     ),
@@ -198,28 +284,38 @@ class _LoginScreenState extends State<LoginScreen> {
                             const SizedBox(height: 24),
 
                             // Login button
-                            Consumer<AuthProvider>(
-                              builder: (context, authProvider, child) {
-                                return ElevatedButton(
-                                  onPressed: authProvider.isLoading ? null : _handleLogin,
-                                  style: ElevatedButton.styleFrom(
-                                    padding: const EdgeInsets.symmetric(vertical: 16),
-                                  ),
-                                  child: authProvider.isLoading
-                                      ? const SizedBox(
-                                          height: 20,
-                                          width: 20,
-                                          child: CircularProgressIndicator(
-                                            strokeWidth: 2,
-                                            valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                                          ),
-                                        )
-                                      : const Text('Entrar'),
-                                );
-                              },
+                            ElevatedButton(
+                              onPressed: _isLoggingIn ? null : _handleLogin,
+                              style: ElevatedButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(vertical: 16),
+                              ),
+                              child: _isLoggingIn
+                                  ? const SizedBox(
+                                      height: 20,
+                                      width: 20,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                      ),
+                                    )
+                                  : const Text('Entrar'),
                             ),
 
-                            const SizedBox(height: 16),
+                            const SizedBox(height: 12),
+
+                            // Forgot password link
+                            TextButton(
+                              onPressed: () => context.go('/reset-password?type=${widget.userType ?? 'student'}'),
+                              child: Text(
+                                'Esqueceu sua senha?',
+                                style: TextStyle(
+                                  color: Colors.blue.shade700,
+                                  fontSize: 14,
+                                ),
+                              ),
+                            ),
+
+                            const SizedBox(height: 4),
 
                             // Error message
                             Consumer<AuthProvider>(
@@ -266,38 +362,6 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                     ],
                   ),
-
-                  // Admin login info
-                  if (widget.userType == null)
-                    Container(
-                      margin: const EdgeInsets.only(top: 24),
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: Colors.blue.shade50,
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: Colors.blue.shade200),
-                      ),
-                      child: Column(
-                        children: [
-                          Text(
-                            'Acesso de Administrador',
-                            style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                              fontWeight: FontWeight.w600,
-                              color: Colors.blue.shade700,
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            'Email: admin@fitconnect.com\nSenha: admin123',
-                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: Colors.blue.shade600,
-                              fontFamily: 'monospace',
-                            ),
-                            textAlign: TextAlign.center,
-                          ),
-                        ],
-                      ),
-                    ),
                 ],
               ),
             ),

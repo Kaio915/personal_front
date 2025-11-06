@@ -9,11 +9,13 @@ class AuthProvider with ChangeNotifier {
   User? _currentUser;
   bool _isLoading = false;
   String? _errorMessage;
+  bool _isAttemptingLogin = false; // Nova flag para prevenir redirecionamentos
 
   User? get currentUser => _currentUser;
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
   bool get isAuthenticated => _currentUser != null;
+  bool get isAttemptingLogin => _isAttemptingLogin;
 
   // Initialize the provider
   Future<void> initialize() async {
@@ -34,27 +36,41 @@ class AuthProvider with ChangeNotifier {
 
   // Login
   Future<bool> login(String email, String password, {String? userType}) async {
+    print('📱 AuthProvider.login - INÍCIO');
     _isLoading = true;
+    _isAttemptingLogin = true;
     _errorMessage = null;
+    print('   Antes notifyListeners: isLoading=$_isLoading, isAttemptingLogin=$_isAttemptingLogin');
     notifyListeners();
 
     try {
       final user = await _authService.login(email, password, userType: userType);
       
       if (user != null) {
+        print('   ✅ Login bem-sucedido');
         _currentUser = user;
         _isLoading = false;
+        _isAttemptingLogin = false;
+        print('   Antes notifyListeners (sucesso): isLoading=$_isLoading, isAttemptingLogin=$_isAttemptingLogin');
         notifyListeners();
         return true;
       } else {
+        print('   ❌ Login falhou - credenciais incorretas');
         _errorMessage = 'Email ou senha incorretos, ou cadastro ainda não aprovado';
         _isLoading = false;
+        // Manter isAttemptingLogin = true para evitar redirecionamento
+        // A tela de login vai resetar isso depois de mostrar o erro
+        print('   Antes notifyListeners (falha): isLoading=$_isLoading, isAttemptingLogin=$_isAttemptingLogin');
         notifyListeners();
         return false;
       }
     } catch (e) {
+      print('   ⚠️ Erro no login: $e');
       _errorMessage = 'Erro ao fazer login: $e';
       _isLoading = false;
+      // Manter isAttemptingLogin = true para evitar redirecionamento
+      // A tela de login vai resetar isso depois de mostrar o erro
+      print('   Antes notifyListeners (erro): isLoading=$_isLoading, isAttemptingLogin=$_isAttemptingLogin');
       notifyListeners();
       return false;
     }
@@ -64,7 +80,8 @@ class AuthProvider with ChangeNotifier {
   Future<bool> signup(Map<String, dynamic> userData, String password) async {
     _isLoading = true;
     _errorMessage = null;
-    notifyListeners();
+    // NÃO notificar listeners durante signup para evitar desmonte do widget
+    // notifyListeners();
 
     try {
       final result = await _authService.signup(userData, password);
@@ -76,12 +93,14 @@ class AuthProvider with ChangeNotifier {
       }
       
       _isLoading = false;
-      notifyListeners();
+      // NÃO notificar listeners aqui - deixar a tela de signup controlar
+      // notifyListeners();
       return result['success'] ?? false;
     } catch (e) {
       _errorMessage = 'Erro ao fazer cadastro: $e';
       _isLoading = false;
-      notifyListeners();
+      // NÃO notificar listeners aqui - deixar a tela de signup controlar
+      // notifyListeners();
       return false;
     }
   }
@@ -176,6 +195,14 @@ class AuthProvider with ChangeNotifier {
   // Clear error message
   void clearError() {
     _errorMessage = null;
+    notifyListeners();
+  }
+
+  // Reset login attempt flag
+  void resetLoginAttempt() {
+    print('🔄 AuthProvider.resetLoginAttempt - Resetando flag');
+    _isAttemptingLogin = false;
+    print('   Antes notifyListeners: isAttemptingLogin=$_isAttemptingLogin');
     notifyListeners();
   }
 }

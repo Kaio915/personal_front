@@ -129,7 +129,7 @@ class _StudentDashboardState extends State<StudentDashboard> with TickerProvider
             },
           ),
           PopupMenuButton<String>(
-            onSelected: (value) {
+            onSelected: (value) async {
               switch (value) {
                 case 'profile':
                   // TODO: Navigate to profile
@@ -138,8 +138,10 @@ class _StudentDashboardState extends State<StudentDashboard> with TickerProvider
                   // TODO: Navigate to settings
                   break;
                 case 'logout':
-                  context.read<AuthProvider>().logout();
-                  context.go('/');
+                  await context.read<AuthProvider>().logout();
+                  if (mounted) {
+                    context.go('/');
+                  }
                   break;
               }
             },

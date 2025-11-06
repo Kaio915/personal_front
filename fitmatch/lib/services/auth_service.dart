@@ -294,13 +294,44 @@ class AuthService {
         roleId = 3; // default para aluno
       }
 
-      // Preparar dados para enviar à API
+      // Preparar dados para enviar à API (incluir TODOS os campos)
       final requestBody = {
         'email': email,
         'password': password,
         'full_name': name,
         'role_id': roleId,
       };
+
+      // Adicionar campos específicos de aluno
+      if (userData.containsKey('goals')) {
+        requestBody['goals'] = userData['goals'];
+      }
+      if (userData.containsKey('fitnessLevel')) {
+        requestBody['fitnessLevel'] = userData['fitnessLevel'];
+      }
+      if (userData.containsKey('registration_date')) {
+        requestBody['registration_date'] = userData['registration_date'];
+      }
+
+      // Adicionar campos específicos de personal trainer
+      if (userData.containsKey('specialty')) {
+        requestBody['specialty'] = userData['specialty'];
+      }
+      if (userData.containsKey('cref')) {
+        requestBody['cref'] = userData['cref'];
+      }
+      if (userData.containsKey('experience')) {
+        requestBody['experience'] = userData['experience'];
+      }
+      if (userData.containsKey('bio')) {
+        requestBody['bio'] = userData['bio'];
+      }
+      if (userData.containsKey('hourlyRate')) {
+        requestBody['hourlyRate'] = userData['hourlyRate'];
+      }
+      if (userData.containsKey('city')) {
+        requestBody['city'] = userData['city'];
+      }
 
       print('Enviando requisição para: ${Config.apiUrl}/users');
       print('Dados: $requestBody');

@@ -68,7 +68,7 @@ class _FitMatchAppState extends State<FitMatchApp> {
           title: 'FitConnect',
           debugShowCheckedModeBanner: false,
           theme: AppTheme.lightTheme,
-          routerConfig: AppRouter.router,
+          routerConfig: AppRouter.createRouter(authProvider),
         );
       },
     );

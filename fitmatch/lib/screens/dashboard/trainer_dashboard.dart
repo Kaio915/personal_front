@@ -125,7 +125,7 @@ class _TrainerDashboardState extends State<TrainerDashboard> with TickerProvider
             },
           ),
           PopupMenuButton<String>(
-            onSelected: (value) {
+            onSelected: (value) async {
               switch (value) {
                 case 'profile':
                   // TODO: Navigate to profile
@@ -134,8 +134,10 @@ class _TrainerDashboardState extends State<TrainerDashboard> with TickerProvider
                   // TODO: Navigate to settings
                   break;
                 case 'logout':
-                  context.read<AuthProvider>().logout();
-                  context.go('/');
+                  await context.read<AuthProvider>().logout();
+                  if (mounted) {
+                    context.go('/');
+                  }
                   break;
               }
             },

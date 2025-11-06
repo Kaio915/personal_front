@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
 import 'package:http/http.dart' as http;
@@ -20,7 +20,10 @@ class _AdminDashboardState extends State<AdminDashboard>
   List<Map<String, dynamic>> _pendingUsers = [];
   List<Map<String, dynamic>> _allUsers = [];
   bool _isLoading = false;
-  String _statsFilter = 'none'; // 'none', 'total', 'trainers', 'students', 'pending'
+  String _statsFilter = 'none';
+  String _approvalsFilter = 'none';
+  final TextEditingController _searchController = TextEditingController();
+  String _searchQuery = '';
 
   @override
   void initState() {
@@ -32,6 +35,7 @@ class _AdminDashboardState extends State<AdminDashboard>
   @override
   void dispose() {
     _tabController.dispose();
+    _searchController.dispose();
     super.dispose();
   }
 
@@ -52,6 +56,10 @@ class _AdminDashboardState extends State<AdminDashboard>
         _pendingUsers = List<Map<String, dynamic>>.from(
           json.decode(pendingResponse.body) as List,
         );
+        debugPrint('📋 Pending users loaded: ${_pendingUsers.length}');
+        if (_pendingUsers.isNotEmpty) {
+          debugPrint('📋 Sample user data: ${_pendingUsers.first}');
+        }
       }
       
       final allResponse = await http.get(
@@ -84,80 +92,43 @@ class _AdminDashboardState extends State<AdminDashboard>
   }
 
   Future<void> _updateApproval(int userId, bool approved) async {
-    debugPrint('═══════════════════════════════════════');
-    debugPrint('🔄 _updateApproval INICIADO');
-    debugPrint('userId: $userId (tipo: ${userId.runtimeType})');
-    debugPrint('approved: $approved');
-    debugPrint('📊 ANTES - _pendingUsers.length: ${_pendingUsers.length}');
-    debugPrint('📊 ANTES - _allUsers.length: ${_allUsers.length}');
-    
-    // Encontrar o usuário antes de remover
     final userIdStr = userId.toString();
     Map<String, dynamic>? foundUser;
     
-    // Procurar o usuário em _pendingUsers
     for (var u in _pendingUsers) {
       if (u['id'].toString() == userIdStr) {
-        foundUser = Map<String, dynamic>.from(u); // Criar cópia
-        debugPrint('👤 Usuário encontrado: ${foundUser['email']}');
+        foundUser = Map<String, dynamic>.from(u);
         break;
       }
     }
     
     if (foundUser == null) {
-      debugPrint('❌ Usuário $userId não encontrado em _pendingUsers');
       return;
     }
     
-    // Remover da lista de pendentes e atualizar _allUsers
-    debugPrint('🗑️ Chamando setState para ${approved ? 'aprovar' : 'rejeitar'}...');
     setState(() {
-      // Remover de pendentes
-      _pendingUsers.removeWhere((user) {
-        final currentId = user['id'].toString();
-        final match = currentId == userIdStr;
-        if (match) debugPrint('  ✓ Removido de _pendingUsers: ${user['email']}');
-        return match;
-      });
+      _pendingUsers.removeWhere((user) => user['id'].toString() == userIdStr);
       
       if (approved) {
-        // Se APROVADO, atualizar o status e adicionar à lista de todos
         foundUser!['approved'] = true;
-        
-        // Verificar se já não está em _allUsers (evitar duplicação)
         final alreadyExists = _allUsers.any((u) => u['id'].toString() == userIdStr);
         if (!alreadyExists) {
           _allUsers.add(foundUser);
-          debugPrint('  ✓ Adicionado a _allUsers: ${foundUser['email']}');
         } else {
-          // Se já existe, atualizar o status
           final index = _allUsers.indexWhere((u) => u['id'].toString() == userIdStr);
           if (index >= 0) {
             _allUsers[index]['approved'] = true;
-            debugPrint('  ✓ Atualizado em _allUsers: ${foundUser['email']}');
           }
         }
       } else {
-        // Se REJEITADO, remover de _allUsers também
-        _allUsers.removeWhere((user) {
-          final currentId = user['id'].toString();
-          final match = currentId == userIdStr;
-          if (match) debugPrint('  ✓ Removido de _allUsers: ${user['email']}');
-          return match;
-        });
+        _allUsers.removeWhere((user) => user['id'].toString() == userIdStr);
       }
     });
     
-    debugPrint('✅ DEPOIS DO setState - _pendingUsers.length: ${_pendingUsers.length}');
-    debugPrint('✅ DEPOIS DO setState - _allUsers.length: ${_allUsers.length}');
-    debugPrint('═══════════════════════════════════════');
-
     try {
       final token = await AuthService().getToken();
       
       if (approved) {
-        // APROVAR: Usar PATCH para marcar como aprovado
-        debugPrint('📡 Enviando PATCH para aprovar...');
         final response = await http.patch(
           Uri.parse('${Config.apiUrl}/users/$userId/approval'),
           headers: {
@@ -167,85 +138,30 @@ class _AdminDashboardState extends State<AdminDashboard>
           body: json.encode({'approved': true}),
         );
         
-        debugPrint('📨 Resposta PATCH: ${response.statusCode}');
-        
-        if (response.statusCode == 200) {
-          debugPrint('✅ Usuário aprovado com sucesso!');
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Usuário aprovado!'),
-                backgroundColor: Colors.green,
-                duration: Duration(seconds: 2),
-              ),
-            );
-          }
-        } else {
-          debugPrint('❌ Erro ao aprovar: ${response.statusCode} - ${response.body}');
-          await _loadData(); // Restaurar estado
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Erro ao aprovar usuário'),
-                backgroundColor: Colors.red,
-              ),
-            );
-          }
+        if (response.statusCode == 200 && mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Usuário aprovado com sucesso'),
+              backgroundColor: Colors.green,
+            ),
+          );
         }
       } else {
-        // REJEITAR: Usar DELETE para remover completamente
-        debugPrint('📡 Enviando DELETE para rejeitar...');
+        final response = await http.delete(
+          Uri.parse('${Config.apiUrl}/users/$userId'),
+          headers: {'Authorization': 'Bearer $token'},
+        );
         
-        try {
-          final response = await http.delete(
-            Uri.parse('${Config.apiUrl}/users/$userId'),
-            headers: {
-              'Authorization': 'Bearer $token',
-            },
+        if (response.statusCode == 200 && mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Usuário rejeitado'),
+              backgroundColor: Colors.orange,
+            ),
           );
-          
-          debugPrint('📨 Resposta DELETE: ${response.statusCode}');
-          
-          if (response.statusCode == 200 || response.statusCode == 204) {
-            debugPrint('✅ Usuário deletado com sucesso!');
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Usuário rejeitado e removido'),
-                  backgroundColor: Colors.orange,
-                  duration: Duration(seconds: 2),
-                ),
-              );
-            }
-          } else {
-            debugPrint('❌ Erro ao deletar: ${response.statusCode}');
-            await _loadData(); // Restaurar estado
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Erro ao rejeitar usuário'),
-                  backgroundColor: Colors.red,
-                ),
-              );
-            }
-          }
-        } catch (deleteError) {
-          // Ignorar erros de parsing - o importante é que o usuário foi removido localmente
-          debugPrint('⚠️ Erro ao fazer DELETE (mas usuário já foi removido localmente): $deleteError');
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Usuário rejeitado e removido'),
-                backgroundColor: Colors.orange,
-                duration: Duration(seconds: 2),
-              ),
-            );
-          }
         }
       }
     } catch (e) {
-      debugPrint('❌ Exceção: $e');
-      // Se der erro, recarregar para restaurar o estado
       await _loadData();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -262,11 +178,12 @@ class _AdminDashboardState extends State<AdminDashboard>
     final confirm = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Row(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
           children: [
-            Icon(Icons.warning, color: Colors.red),
-            SizedBox(width: 8),
-            Text('Confirmar Exclusão'),
+            Icon(Icons.warning_rounded, color: Colors.red.shade700, size: 28),
+            const SizedBox(width: 12),
+            const Text('Confirmar Exclusão'),
           ],
         ),
         content: Column(
@@ -274,48 +191,54 @@ class _AdminDashboardState extends State<AdminDashboard>
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'Tem certeza que deseja excluir este usuário permanentemente?',
-              style: TextStyle(fontWeight: FontWeight.bold),
+              'Tem certeza que deseja excluir este usuário?',
+              style: TextStyle(fontSize: 16),
             ),
             const SizedBox(height: 16),
-            Text('Nome: ${user['full_name'] ?? 'Sem nome'}'),
-            Text('Email: ${user['email'] ?? ''}'),
-            const SizedBox(height: 16),
             Container(
-              padding: const EdgeInsets.all(12),
+              padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: Colors.red.shade50,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.red.shade200),
+                color: Colors.grey.shade100,
+                borderRadius: BorderRadius.circular(12),
               ),
-              child: const Row(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Icon(Icons.info_outline, color: Colors.red, size: 20),
-                  SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'Esta ação não pode ser desfeita!',
-                      style: TextStyle(
-                        color: Colors.red,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w500,
-                      ),
+                  Text(
+                    user['full_name'] ?? 'N/A',
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
                     ),
                   ),
+                  const SizedBox(height: 4),
+                  Text(
+                    user['email'] ?? 'N/A',
+                    style: TextStyle(fontSize: 14, color: Colors.grey.shade700),
+                  ),
                 ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'Esta ação não pode ser desfeita.',
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.red,
+                fontWeight: FontWeight.w500,
               ),
             ),
           ],
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
+            onPressed: () => Navigator.pop(context, false),
             child: const Text('Cancelar'),
           ),
           ElevatedButton(
-            onPressed: () => Navigator.of(context).pop(true),
+            onPressed: () => Navigator.pop(context, true),
             style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red,
+              backgroundColor: Colors.red.shade700,
               foregroundColor: Colors.white,
             ),
             child: const Text('Excluir'),
@@ -325,76 +248,32 @@ class _AdminDashboardState extends State<AdminDashboard>
     );
 
     if (confirm == true) {
-      await _deleteUser(user['id']);
+      await _deleteUser(user['id'] as int);
     }
   }
 
   Future<void> _deleteUser(int userId) async {
-    debugPrint('═══════════════════════════════════════');
-    debugPrint('🗑️ EXCLUINDO USUÁRIO');
-    debugPrint('userId: $userId');
-
-    // Remover localmente primeiro (optimistic update)
     setState(() {
       _allUsers.removeWhere((u) => u['id'] == userId);
       _pendingUsers.removeWhere((u) => u['id'] == userId);
     });
 
     try {
-      try {
-        final token = await AuthService().getToken();
+      final token = await AuthService().getToken();
+      final response = await http.delete(
+        Uri.parse('${Config.apiUrl}/users/$userId'),
+        headers: {'Authorization': 'Bearer $token'},
+      );
 
-        final response = await http.delete(
-          Uri.parse('${Config.apiUrl}/users/$userId'),
-          headers: {
-            'Authorization': 'Bearer $token',
-          },
+      if (response.statusCode == 200 && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Usuário excluído com sucesso'),
+            backgroundColor: Colors.green,
+          ),
         );
-
-        debugPrint('📨 Resposta DELETE: ${response.statusCode}');
-
-        if (response.statusCode == 200 || response.statusCode == 204) {
-          debugPrint('✅ Usuário excluído com sucesso!');
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Usuário excluído com sucesso'),
-                backgroundColor: Colors.green,
-                duration: Duration(seconds: 2),
-              ),
-            );
-          }
-          
-          // Recarregar dados para garantir consistência
-          await _loadData();
-        } else {
-          debugPrint('❌ Erro ao excluir: ${response.statusCode}');
-          await _loadData(); // Restaurar estado
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Erro ao excluir usuário'),
-                backgroundColor: Colors.red,
-              ),
-            );
-          }
-        }
-      } catch (deleteError) {
-        // Ignorar erros de parsing - o usuário já foi removido localmente
-        debugPrint('⚠️ Erro ao fazer DELETE (mas usuário já foi removido): $deleteError');
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Usuário excluído com sucesso'),
-              backgroundColor: Colors.green,
-              duration: Duration(seconds: 2),
-            ),
-          );
-        }
-        await _loadData();
       }
     } catch (e) {
-      debugPrint('❌ Exceção ao excluir: $e');
       await _loadData();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -412,297 +291,382 @@ class _AdminDashboardState extends State<AdminDashboard>
     final user = context.watch<AuthProvider>().currentUser;
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text('Admin - ${user?.name ?? "Administrador"}'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: _loadData,
-            tooltip: 'Atualizar',
-          ),
-          PopupMenuButton<String>(
-            onSelected: (value) {
-              if (value == 'logout') {
-                context.read<AuthProvider>().logout();
-                context.go('/');
-              }
-            },
-            itemBuilder: (context) => [
-              const PopupMenuItem(
-                value: 'logout',
-                child: ListTile(
-                  leading: Icon(Icons.logout),
-                  title: Text('Sair'),
+      backgroundColor: Colors.grey.shade50,
+      body: SafeArea(
+        child: Column(
+          children: [
+            // Header moderno
+            Container(
+              decoration: BoxDecoration(
+                color: Colors.white,
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.05),
+                    blurRadius: 10,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                child: Row(
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.arrow_back, size: 24),
+                      onPressed: () => context.go('/'),
+                      tooltip: 'Voltar',
+                    ),
+                    const SizedBox(width: 12),
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.blue.shade50,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Icon(
+                        Icons.admin_panel_settings,
+                        color: Colors.blue.shade700,
+                        size: 28,
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Painel Administrativo',
+                          style: TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.black87,
+                          ),
+                        ),
+                        Text(
+                          user?.name ?? 'Administrador',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: Colors.grey.shade600,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const Spacer(),
+                    IconButton(
+                      icon: const Icon(Icons.refresh_rounded, size: 24),
+                      onPressed: _loadData,
+                      tooltip: 'Atualizar',
+                      style: IconButton.styleFrom(
+                        backgroundColor: Colors.grey.shade100,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    TextButton.icon(
+                      onPressed: () async {
+                        await context.read<AuthProvider>().logout();
+                        if (!context.mounted) return;
+                        context.go('/');
+                      },
+                      icon: const Icon(Icons.logout, size: 20),
+                      label: const Text('Sair'),
+                      style: TextButton.styleFrom(
+                        foregroundColor: Colors.red.shade700,
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      ),
+                    ),
+                  ],
                 ),
               ),
-            ],
-          ),
-        ],
-        bottom: TabBar(
-          controller: _tabController,
-          tabs: [
-            Tab(
-              icon: Badge(
-                label: Text('${_pendingUsers.length}'),
-                isLabelVisible: _pendingUsers.isNotEmpty,
-                child: const Icon(Icons.pending_actions),
-              ),
-              text: 'Aprovações',
             ),
-            const Tab(icon: Icon(Icons.analytics), text: 'Estatísticas'),
+            
+            // Tabs modernos
+            Container(
+              color: Colors.white,
+              child: TabBar(
+                controller: _tabController,
+                labelColor: Colors.blue.shade700,
+                unselectedLabelColor: Colors.grey.shade600,
+                indicatorColor: Colors.blue.shade700,
+                indicatorWeight: 3,
+                labelStyle: const TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                ),
+                unselectedLabelStyle: const TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.normal,
+                ),
+                tabs: [
+                  Tab(
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Text('Aprovações'),
+                        if (_pendingUsers.isNotEmpty) ...[
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: Colors.red.shade500,
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Text(
+                              '${_pendingUsers.length}',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  const Tab(text: 'Estatísticas'),
+                ],
+              ),
+            ),
+            
+            // Conteúdo
+            Expanded(
+              child: TabBarView(
+                controller: _tabController,
+                children: [
+                  _buildApprovalsTab(),
+                  _buildStatsTab(),
+                ],
+              ),
+            ),
           ],
         ),
-      ),
-      body: TabBarView(
-        controller: _tabController,
-        children: [
-          _buildApprovalsTab(),
-          _buildStatsTab(),
-        ],
       ),
     );
   }
 
   Widget _buildApprovalsTab() {
     if (_isLoading) {
-      return const Center(child: CircularProgressIndicator());
-    }
-
-    if (_pendingUsers.isEmpty) {
-      return const Center(
+      return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.check_circle_outline, size: 64, color: Colors.green),
-            SizedBox(height: 16),
+            CircularProgressIndicator(
+              valueColor: AlwaysStoppedAnimation<Color>(Colors.blue.shade700),
+            ),
+            const SizedBox(height: 16),
             Text(
-              'Nenhuma aprovação pendente',
-              style: TextStyle(fontSize: 18, color: Colors.grey),
+              'Carregando dados...',
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.grey.shade600,
+              ),
             ),
           ],
         ),
       );
     }
 
-    return ListView.builder(
-      key: ValueKey(_pendingUsers.length), // Força rebuild quando o tamanho muda
-      padding: const EdgeInsets.all(16),
-      itemCount: _pendingUsers.length,
-      itemBuilder: (context, index) {
-        return _buildUserCard(_pendingUsers[index], isPending: true);
-      },
-    );
-  }
-
-  Widget _buildUserCard(Map<String, dynamic> user, {required bool isPending}) {
-    final roleName = user['role']?['name'] ?? 'unknown';
-    final isTrainer = roleName == 'personal';
-    final isAdmin = roleName == 'admin';
-    
-    Color roleColor;
-    String roleLabel;
-    
-    if (isAdmin) {
-      roleColor = Colors.red;
-      roleLabel = 'Admin';
-    } else if (isTrainer) {
-      roleColor = Colors.blue;
-      roleLabel = 'Personal';
-    } else {
-      roleColor = Colors.green;
-      roleLabel = 'Aluno';
-    }
-
-    return Card(
-      margin: const EdgeInsets.only(bottom: 16),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                CircleAvatar(
-                  radius: 30,
-                  backgroundColor: roleColor,
-                  child: Text(
-                    (user['full_name'] ?? user['email'] ?? '?')
-                        .substring(0, 1)
-                        .toUpperCase(),
-                    style: const TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        user['full_name'] ?? 'Sem nome',
-                        style: const TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      Text(
-                        user['email'] ?? '',
-                        style: TextStyle(
-                          fontSize: 14,
-                          color: Colors.grey.shade600,
-                        ),
-                      ),
-                      Container(
-                        margin: const EdgeInsets.only(top: 4),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 4,
-                        ),
-                        decoration: BoxDecoration(
-                          color: roleColor.withOpacity(0.2),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Text(
-                          roleLabel,
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: roleColor.withOpacity(0.8),
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            if (isPending)
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: () => _updateApproval(user['id'], false),
-                      icon: const Icon(Icons.close),
-                      label: const Text('Rejeitar'),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: Colors.red,
-                        side: const BorderSide(color: Colors.red),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: ElevatedButton.icon(
-                      onPressed: () => _updateApproval(user['id'], true),
-                      icon: const Icon(Icons.check),
-                      label: const Text('Aprovar'),
-                    ),
-                  ),
-                ],
-              )
-            else
-              // Botão de excluir para usuários já aprovados
-              OutlinedButton.icon(
-                onPressed: () => _confirmDeleteUser(user),
-                icon: const Icon(Icons.delete_forever),
-                label: const Text('Excluir Usuário'),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: Colors.red,
-                  side: const BorderSide(color: Colors.red),
-                ),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildStatsTab() {
-    final trainers = _allUsers.where(
-      (u) => u['role']?['name'] == 'personal' && u['approved'] == true,
+    final pendingStudents = _pendingUsers.where(
+      (u) => u['role']?['name'] == 'aluno',
     ).toList();
-    final students = _allUsers.where(
-      (u) => u['role']?['name'] == 'aluno' && u['approved'] == true,
+    
+    final pendingTrainers = _pendingUsers.where(
+      (u) => u['role']?['name'] == 'personal',
     ).toList();
-    final approved = _allUsers.where((u) => u['approved'] == true).toList();
 
     // Se um filtro estiver ativo, mostrar a lista filtrada
-    if (_statsFilter != 'none') {
+    if (_approvalsFilter != 'none') {
       List<Map<String, dynamic>> filteredUsers;
       String title;
+      IconData icon;
+      Color color;
       
-      switch (_statsFilter) {
-        case 'total':
-          filteredUsers = approved;
-          title = 'Todos os Usuários';
-          break;
-        case 'trainers':
-          filteredUsers = trainers;
-          title = 'Personal Trainers';
-          break;
-        case 'students':
-          filteredUsers = students;
-          title = 'Alunos';
-          break;
-        case 'pending':
-          filteredUsers = _pendingUsers;
-          title = 'Usuários Pendentes';
-          break;
-        default:
-          filteredUsers = [];
-          title = '';
+      if (_approvalsFilter == 'students') {
+        filteredUsers = pendingStudents;
+        title = 'Alunos Pendentes';
+        icon = Icons.school;
+        color = Colors.blue.shade700;
+      } else {
+        filteredUsers = pendingTrainers;
+        title = 'Personal Trainers Pendentes';
+        icon = Icons.fitness_center;
+        color = Colors.orange.shade700;
+      }
+      
+      // Filtrar por busca
+      if (_searchQuery.isNotEmpty) {
+        filteredUsers = filteredUsers.where((user) {
+          final name = (user['full_name'] ?? '').toLowerCase();
+          final email = (user['email'] ?? '').toLowerCase();
+          final query = _searchQuery.toLowerCase();
+          return name.contains(query) || email.contains(query);
+        }).toList();
       }
       
       return Column(
         children: [
+          // Cabeçalho com busca
           Container(
-            padding: const EdgeInsets.all(16),
-            color: Colors.grey.shade100,
-            child: Row(
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.03),
+                  blurRadius: 6,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                IconButton(
-                  icon: const Icon(Icons.arrow_back),
-                  onPressed: () {
+                Row(
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.arrow_back, size: 22),
+                      onPressed: () {
+                        setState(() {
+                          _approvalsFilter = 'none';
+                          _searchQuery = '';
+                          _searchController.clear();
+                        });
+                      },
+                      style: IconButton.styleFrom(
+                        backgroundColor: Colors.grey.shade100,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: color.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Icon(icon, color: color, size: 22),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            title,
+                            style: const TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.black87,
+                            ),
+                          ),
+                          Text(
+                            '${filteredUsers.length} solicitaç${filteredUsers.length == 1 ? 'ão' : 'ões'}',
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: Colors.grey.shade600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: _searchController,
+                  decoration: InputDecoration(
+                    hintText: 'Buscar por nome ou email...',
+                    hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 14),
+                    prefixIcon: Icon(Icons.search, color: Colors.grey.shade600, size: 20),
+                    suffixIcon: _searchQuery.isNotEmpty
+                        ? IconButton(
+                            icon: const Icon(Icons.clear, size: 20),
+                            onPressed: () {
+                              setState(() {
+                                _searchController.clear();
+                                _searchQuery = '';
+                              });
+                            },
+                          )
+                        : null,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide(color: Colors.grey.shade300),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide(color: Colors.grey.shade300),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide(color: color, width: 2),
+                    ),
+                    filled: true,
+                    fillColor: Colors.grey.shade50,
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 14,
+                    ),
+                  ),
+                  onChanged: (value) {
                     setState(() {
-                      _statsFilter = 'none';
+                      _searchQuery = value;
                     });
                   },
-                ),
-                Text(
-                  title,
-                  style: const TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const Spacer(),
-                Text(
-                  '${filteredUsers.length} usuários',
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: Colors.grey.shade600,
-                  ),
                 ),
               ],
             ),
           ),
+          
+          // Lista de usuários
           Expanded(
             child: filteredUsers.isEmpty
-                ? const Center(
-                    child: Text('Nenhum usuário encontrado'),
+                ? Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(24),
+                          decoration: BoxDecoration(
+                            color: Colors.grey.shade100,
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(
+                            _searchQuery.isNotEmpty
+                                ? Icons.search_off
+                                : Icons.check_circle_outline,
+                            size: 64,
+                            color: Colors.grey.shade400,
+                          ),
+                        ),
+                        const SizedBox(height: 24),
+                        Text(
+                          _searchQuery.isNotEmpty
+                              ? 'Nenhum resultado encontrado'
+                              : 'Nenhuma solicitação pendente',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.grey.shade700,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          _searchQuery.isNotEmpty
+                              ? 'Tente buscar com outros termos'
+                              : 'Todas as solicitações foram processadas',
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.grey.shade500,
+                          ),
+                        ),
+                      ],
+                    ),
                   )
                 : ListView.builder(
-                    padding: const EdgeInsets.all(16),
+                    padding: const EdgeInsets.all(24),
                     itemCount: filteredUsers.length,
                     itemBuilder: (context, index) {
-                      return _buildUserCard(
-                        filteredUsers[index],
-                        isPending: _statsFilter == 'pending',
-                      );
+                      final user = filteredUsers[index];
+                      return _buildUserCard(user, isPending: true);
                     },
                   ),
           ),
@@ -710,87 +674,664 @@ class _AdminDashboardState extends State<AdminDashboard>
       );
     }
 
-    // Mostrar cards de estatísticas
+    // Vista inicial com cards de categoria
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'Estatísticas do Sistema',
-            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Clique em um card para ver os detalhes',
+          const Text(
+            'Solicitações de cadastro aguardando aprovação',
             style: TextStyle(
-              fontSize: 14,
-              color: Colors.grey.shade600,
+              fontSize: 16,
+              color: Colors.black54,
             ),
           ),
           const SizedBox(height: 24),
-          Row(
+          LayoutBuilder(
+            builder: (context, constraints) {
+              if (constraints.maxWidth > 768) {
+                // Desktop - 2 colunas
+                return Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: _buildApprovalCategoryCard(
+                        'Personal Trainers Pendentes',
+                        pendingTrainers.length,
+                        Icons.fitness_center,
+                        Colors.orange.shade700,
+                        onTap: () {
+                          setState(() {
+                            _approvalsFilter = 'trainers';
+                          });
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 24),
+                    Expanded(
+                      child: _buildApprovalCategoryCard(
+                        'Alunos Pendentes',
+                        pendingStudents.length,
+                        Icons.school,
+                        Colors.blue.shade700,
+                        onTap: () {
+                          setState(() {
+                            _approvalsFilter = 'students';
+                          });
+                        },
+                      ),
+                    ),
+                  ],
+                );
+              } else {
+                // Mobile - 1 coluna
+                return Column(
+                  children: [
+                    _buildApprovalCategoryCard(
+                      'Personal Trainers Pendentes',
+                      pendingTrainers.length,
+                      Icons.fitness_center,
+                      Colors.orange.shade700,
+                      onTap: () {
+                        setState(() {
+                          _approvalsFilter = 'trainers';
+                        });
+                      },
+                    ),
+                    const SizedBox(height: 24),
+                    _buildApprovalCategoryCard(
+                      'Alunos Pendentes',
+                      pendingStudents.length,
+                      Icons.school,
+                      Colors.blue.shade700,
+                      onTap: () {
+                        setState(() {
+                          _approvalsFilter = 'students';
+                        });
+                      },
+                    ),
+                  ],
+                );
+              }
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildApprovalCategoryCard(
+    String title,
+    int count,
+    IconData icon,
+    Color color, {
+    VoidCallback? onTap,
+  }) {
+    return InkWell(
+      onTap: count > 0 ? onTap : null,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: count > 0 ? color.withOpacity(0.3) : Colors.grey.shade300,
+            width: 2,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: count > 0 ? color.withOpacity(0.08) : Colors.black.withOpacity(0.03),
+              blurRadius: 12,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              Expanded(
-                child: _buildStatCard(
-                  'Total',
-                  '${approved.length}',
-                  Icons.people,
-                  Colors.blue,
-                  onTap: () {
-                    setState(() {
-                      _statsFilter = 'total';
-                    });
-                  },
+              Container(
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: count > 0 ? color.withOpacity(0.1) : Colors.grey.shade100,
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  icon,
+                  size: 48,
+                  color: count > 0 ? color : Colors.grey.shade400,
                 ),
               ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: _buildStatCard(
-                  'Personal Trainers',
-                  '${trainers.length}',
-                  Icons.fitness_center,
-                  Colors.green,
-                  onTap: () {
-                    setState(() {
-                      _statsFilter = 'trainers';
-                    });
-                  },
+              const SizedBox(height: 24),
+              Text(
+                '$count',
+                style: TextStyle(
+                  fontSize: 48,
+                  fontWeight: FontWeight.bold,
+                  color: count > 0 ? color : Colors.grey.shade400,
+                  letterSpacing: -1,
                 ),
               ),
+              const SizedBox(height: 12),
+              Text(
+                title,
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                  color: count > 0 ? Colors.black87 : Colors.grey.shade500,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 4),
+              Text(
+                count == 1 ? 'solicitação' : 'solicitações',
+                style: TextStyle(
+                  fontSize: 13,
+                  color: Colors.grey.shade600,
+                ),
+              ),
+              const SizedBox(height: 20),
+              if (count > 0)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 20,
+                    vertical: 10,
+                  ),
+                  decoration: BoxDecoration(
+                    color: color.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        'Ver detalhes',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: color,
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Icon(
+                        Icons.arrow_forward,
+                        size: 16,
+                        color: color,
+                      ),
+                    ],
+                  ),
+                )
+              else
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 20,
+                    vertical: 10,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade100,
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.check_circle_outline,
+                        size: 16,
+                        color: Colors.grey.shade600,
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        'Nenhuma pendência',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                          color: Colors.grey.shade600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
             ],
           ),
-          const SizedBox(height: 16),
-          Row(
+        ),
+      ),
+    );
+  }
+
+  Widget _buildUserCard(Map<String, dynamic> user, {bool isPending = false}) {
+    final roleName = user['role']?['name'] ?? 'N/A';
+    final isStudent = roleName == 'aluno';
+    final color = isStudent ? Colors.blue.shade700 : Colors.orange.shade700;
+    final roleLabel = isStudent ? 'Aluno' : 'Personal Trainer';
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 16),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      elevation: 0,
+      color: Colors.white,
+      child: Container(
+        decoration: BoxDecoration(
+          border: Border.all(color: Colors.grey.shade200, width: 1),
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Expanded(
-                child: _buildStatCard(
-                  'Alunos',
-                  '${students.length}',
-                  Icons.school,
-                  Colors.orange,
-                  onTap: () {
-                    setState(() {
-                      _statsFilter = 'students';
-                    });
-                  },
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: color.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Icon(
+                      isStudent ? Icons.school : Icons.fitness_center,
+                      color: color,
+                      size: 24,
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          user['full_name'] ?? 'N/A',
+                          style: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.black87,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          user['email'] ?? 'N/A',
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.grey.shade600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: color.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(
+                      roleLabel,
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: color,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade50,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Column(
+                  children: isStudent ? [
+                    // Campos para Alunos
+                    _buildInfoRow('Objetivos', user['goals'] ?? 'N/A'),
+                    const SizedBox(height: 12),
+                    _buildInfoRow('Nível', user['fitnessLevel'] ?? user['fitness_level'] ?? 'N/A'),
+                    const SizedBox(height: 12),
+                    _buildInfoRow(
+                      'Data de Cadastro',
+                      user['created_at'] != null
+                          ? _formatDate(user['created_at'])
+                          : (user['registration_date'] != null
+                              ? _formatDate(user['registration_date'])
+                              : 'N/A'),
+                    ),
+                  ] : [
+                    // Campos para Personal Trainers
+                    _buildInfoRow('Especialidade', user['specialty'] ?? 'N/A'),
+                    const SizedBox(height: 12),
+                    _buildInfoRow('CREF', user['cref'] ?? 'N/A'),
+                    const SizedBox(height: 12),
+                    _buildInfoRow('Experiência', user['experience'] ?? 'N/A'),
+                    const SizedBox(height: 12),
+                    _buildInfoRow('Cidade', user['city'] ?? 'N/A'),
+                    const SizedBox(height: 12),
+                    _buildInfoRow('Valor/Hora', user['hourlyRate'] ?? user['hourly_rate'] ?? 'N/A'),
+                    const SizedBox(height: 12),
+                    _buildInfoRow('Bio', user['bio'] ?? 'N/A'),
+                  ],
                 ),
               ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: _buildStatCard(
-                  'Pendentes',
-                  '${_pendingUsers.length}',
-                  Icons.pending,
-                  Colors.red,
-                  onTap: () {
+              if (isPending) ...[
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () => _updateApproval(user['id'] as int, false),
+                        icon: const Icon(Icons.close, size: 20),
+                        label: const Text('Rejeitar'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.red.shade700,
+                          side: BorderSide(color: Colors.red.shade300),
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: () => _updateApproval(user['id'] as int, true),
+                        icon: const Icon(Icons.check, size: 20),
+                        label: const Text('Aprovar'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.green.shade700,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          elevation: 0,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ] else ...[
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: () => _confirmDeleteUser(user),
+                    icon: const Icon(Icons.delete_outline, size: 20),
+                    label: const Text('Excluir Usuário'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.red.shade700,
+                      side: BorderSide(color: Colors.red.shade300),
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildInfoRow(String label, String value) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: 140,
+          child: Text(
+            '$label:',
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              color: Colors.grey.shade700,
+            ),
+          ),
+        ),
+        Expanded(
+          child: Text(
+            value,
+            style: const TextStyle(
+              fontSize: 14,
+              color: Colors.black87,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  String _formatDate(String date) {
+    try {
+      final parsedDate = DateTime.parse(date);
+      return '${parsedDate.day.toString().padLeft(2, '0')}/${parsedDate.month.toString().padLeft(2, '0')}/${parsedDate.year}';
+    } catch (e) {
+      return date;
+    }
+  }
+
+  Widget _buildStatsTab() {
+    if (_isLoading) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            CircularProgressIndicator(
+              valueColor: AlwaysStoppedAnimation<Color>(Colors.blue.shade700),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Carregando dados...',
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.grey.shade600,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final totalUsers = _allUsers.length;
+    final trainersCount = _allUsers.where((u) => u['role']?['name'] == 'personal').length;
+    final studentsCount = _allUsers.where((u) => u['role']?['name'] == 'aluno').length;
+
+    if (_statsFilter != 'none') {
+      List<Map<String, dynamic>> filteredUsers;
+      String title;
+      IconData icon;
+      Color color;
+
+      switch (_statsFilter) {
+        case 'total':
+          filteredUsers = _allUsers;
+          title = 'Todos os Usuários';
+          icon = Icons.people;
+          color = Colors.purple.shade700;
+          break;
+        case 'trainers':
+          filteredUsers = _allUsers.where((u) => u['role']?['name'] == 'personal').toList();
+          title = 'Personal Trainers';
+          icon = Icons.fitness_center;
+          color = Colors.orange.shade700;
+          break;
+        case 'students':
+          filteredUsers = _allUsers.where((u) => u['role']?['name'] == 'aluno').toList();
+          title = 'Alunos';
+          icon = Icons.school;
+          color = Colors.blue.shade700;
+          break;
+        default:
+          filteredUsers = [];
+          title = '';
+          icon = Icons.error;
+          color = Colors.grey;
+      }
+
+      return Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.03),
+                  blurRadius: 6,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: Row(
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.arrow_back, size: 22),
+                  onPressed: () {
                     setState(() {
-                      _statsFilter = 'pending';
+                      _statsFilter = 'none';
                     });
                   },
+                  style: IconButton.styleFrom(
+                    backgroundColor: Colors.grey.shade100,
+                  ),
                 ),
+                const SizedBox(width: 12),
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: color.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Icon(icon, color: color, size: 22),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.black87,
+                        ),
+                      ),
+                      Text(
+                        '${filteredUsers.length} ${filteredUsers.length == 1 ? 'usuário' : 'usuários'}',
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: Colors.grey.shade600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: filteredUsers.isEmpty
+                ? Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(24),
+                          decoration: BoxDecoration(
+                            color: Colors.grey.shade100,
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(
+                            Icons.inbox_outlined,
+                            size: 64,
+                            color: Colors.grey.shade400,
+                          ),
+                        ),
+                        const SizedBox(height: 24),
+                        Text(
+                          'Nenhum usuário encontrado',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.grey.shade700,
+                          ),
+                        ),
+                      ],
+                    ),
+                  )
+                : ListView.builder(
+                    padding: const EdgeInsets.all(24),
+                    itemCount: filteredUsers.length,
+                    itemBuilder: (context, index) {
+                      final user = filteredUsers[index];
+                      return _buildUserCard(user, isPending: _statsFilter == 'pending');
+                    },
+                  ),
+          ),
+        ],
+      );
+    }
+
+    // Vista inicial com estatísticas
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Visão geral do sistema',
+            style: TextStyle(
+              fontSize: 16,
+              color: Colors.black54,
+            ),
+          ),
+          const SizedBox(height: 24),
+          GridView.count(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            crossAxisCount: 3,
+            crossAxisSpacing: 20,
+            mainAxisSpacing: 20,
+            childAspectRatio: 1.5,
+            children: [
+              _buildStatCard(
+                'Total de Usuários',
+                totalUsers,
+                Icons.people,
+                Colors.purple.shade700,
+                onTap: () {
+                  setState(() {
+                    _statsFilter = 'total';
+                  });
+                },
+              ),
+              _buildStatCard(
+                'Personal Trainers',
+                trainersCount,
+                Icons.fitness_center,
+                Colors.orange.shade700,
+                onTap: () {
+                  setState(() {
+                    _statsFilter = 'trainers';
+                  });
+                },
+              ),
+              _buildStatCard(
+                'Alunos',
+                studentsCount,
+                Icons.school,
+                Colors.blue.shade700,
+                onTap: () {
+                  setState(() {
+                    _statsFilter = 'students';
+                  });
+                },
               ),
             ],
           ),
@@ -801,40 +1342,59 @@ class _AdminDashboardState extends State<AdminDashboard>
 
   Widget _buildStatCard(
     String title,
-    String value,
+    int count,
     IconData icon,
     Color color, {
     VoidCallback? onTap,
   }) {
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
-      child: Card(
-        elevation: 2,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: color.withOpacity(0.3), width: 2),
+          boxShadow: [
+            BoxShadow(
+              color: color.withOpacity(0.08),
+              blurRadius: 12,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
         child: Padding(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.all(20),
           child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(icon, size: 32, color: color),
-              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: color.withOpacity(0.1),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(icon, size: 28, color: color),
+              ),
+              const SizedBox(height: 12),
               Text(
-                value,
+                '$count',
                 style: TextStyle(
-                  fontSize: 24,
+                  fontSize: 28,
                   fontWeight: FontWeight.bold,
                   color: color,
+                  letterSpacing: -1,
                 ),
               ),
+              const SizedBox(height: 6),
               Text(
                 title,
-                style: const TextStyle(fontSize: 12),
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.black87,
+                ),
                 textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 4),
-              Icon(
-                Icons.arrow_forward_ios,
-                size: 16,
-                color: Colors.grey.shade400,
               ),
             ],
           ),

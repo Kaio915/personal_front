@@ -3,7 +3,6 @@ import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
 import '../../providers/auth_provider.dart';
 import '../../models/user.dart';
-import '../../utils/router.dart';
 
 class SignupScreen extends StatefulWidget {
   final String? userType;
@@ -88,10 +87,16 @@ class _SignupScreenState extends State<SignupScreen> {
       userData.addAll({
         'goals': _goalsController.text.trim(),
         'fitnessLevel': _selectedFitnessLevel,
+        'registration_date': DateTime.now().toIso8601String(),
       });
     }
 
     print('🔄 Enviando cadastro para o backend...');
+    
+    // Capturar contexto necessário antes do await
+    final navigator = Navigator.of(context);
+    final scaffoldMessenger = ScaffoldMessenger.of(context);
+    
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     final success = await authProvider.signup(
       userData,
@@ -99,57 +104,79 @@ class _SignupScreenState extends State<SignupScreen> {
     );
 
     print('📊 Resultado do cadastro: success = $success');
+    print('📊 Tipo de success: ${success.runtimeType}');
+    print('📊 Success é true? ${success == true}');
     
-    if (!mounted) return;
-
-    if (success) {
-      // Redirecionar direto para a tela de login específica
+    // Verificar se o widget ainda está montado
+    if (!mounted) {
+      print('⚠️ Widget desmontado - não pode mostrar dialog');
+      return;
+    }
+    
+    print('🔍 Verificando if success é verdadeiro...');
+    if (success == true) {
+      print('✅ SUCCESS É TRUE - Mostrando dialog de sucesso...');
       final userTypeParam = _selectedUserType == UserType.student ? 'student' : 'trainer';
+      final userTypeLabel = _selectedUserType == UserType.student ? 'Aluno' : 'Personal Trainer';
       
-      print('✅ Cadastro bem-sucedido! Mostrando diálogo de confirmação');
-      
-      // Mostrar diálogo de sucesso que requer confirmação
+      // Mostrar dialog de sucesso usando navigator capturado
       showDialog(
         context: context,
-        barrierDismissible: false, // Usuário precisa clicar em OK
-        builder: (context) => AlertDialog(
-          icon: Icon(
-            Icons.check_circle_outline,
-            size: 64,
-            color: Colors.green.shade600,
-          ),
-          title: const Text(
-            'Cadastro Realizado!',
-            textAlign: TextAlign.center,
-            style: TextStyle(fontWeight: FontWeight.bold),
+        barrierDismissible: false,
+        builder: (dialogContext) => AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
           ),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.green.shade50,
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  Icons.check_circle,
+                  size: 64,
+                  color: Colors.green.shade600,
+                ),
+              ),
+              const SizedBox(height: 24),
               Text(
-                _selectedUserType == UserType.student 
-                  ? 'Seu cadastro como Aluno foi enviado para análise.'
-                  : 'Seu cadastro como Personal Trainer foi enviado para análise.',
+                'Cadastro Realizado!',
                 textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.green.shade700,
+                ),
               ),
               const SizedBox(height: 16),
+              Text(
+                'Seu cadastro como $userTypeLabel foi enviado com sucesso.',
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 16),
+              ),
+              const SizedBox(height: 24),
               Container(
-                padding: const EdgeInsets.all(12),
+                padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
                   color: Colors.blue.shade50,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.blue.shade200),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.blue.shade200, width: 2),
                 ),
                 child: Row(
                   children: [
-                    Icon(Icons.info_outline, color: Colors.blue.shade700, size: 20),
-                    const SizedBox(width: 8),
+                    Icon(Icons.info_outline, color: Colors.blue.shade700, size: 24),
+                    const SizedBox(width: 12),
                     Expanded(
                       child: Text(
-                        'Aguarde a aprovação do administrador para fazer login.',
+                        'Sua conta será avaliada pelo administrador. Você receberá acesso após a aprovação.',
                         style: TextStyle(
-                          fontSize: 13,
+                          fontSize: 14,
                           color: Colors.blue.shade900,
+                          height: 1.4,
                         ),
                       ),
                     ),
@@ -163,24 +190,36 @@ class _SignupScreenState extends State<SignupScreen> {
               width: double.infinity,
               child: ElevatedButton(
                 onPressed: () {
-                  Navigator.of(context).pop(); // Fecha o diálogo
-                  print('🔄 Redirecionando para login tipo: $userTypeParam');
-                  context.goToLogin(userType: userTypeParam);
+                  Navigator.of(dialogContext).pop();
+                  context.go('/login?type=$userTypeParam');
                 },
                 style: ElevatedButton.styleFrom(
                   padding: const EdgeInsets.symmetric(vertical: 16),
+                  backgroundColor: Colors.blue.shade700,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                 ),
-                child: const Text('OK, Entendi'),
+                child: const Text(
+                  'OK, Entendi',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
               ),
             ),
           ],
         ),
       );
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
+      print('❌ Cadastro falhou - mostrando erro');
+      print('❌ Mensagem de erro: ${authProvider.errorMessage}');
+      scaffoldMessenger.showSnackBar(
         SnackBar(
           content: Text(authProvider.errorMessage ?? 'Erro ao fazer cadastro'),
           backgroundColor: Colors.red,
+          duration: const Duration(seconds: 4),
         ),
       );
     }
