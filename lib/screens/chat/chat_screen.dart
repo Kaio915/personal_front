@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'dart:async';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
 import '../../providers/auth_provider.dart';
+import '../../models/user.dart';
 import '../../providers/chat_provider.dart';
 import '../../models/message.dart';
 
@@ -18,15 +20,31 @@ class _ChatScreenState extends State<ChatScreen> {
   final _messageController = TextEditingController();
   final _scrollController = ScrollController();
   bool _isLoading = false;
+  Timer? _pollTimer;
 
   @override
   void initState() {
     super.initState();
+    print('🧭 ChatScreen: init for otherUserId=${widget.otherUserId}');
     _loadMessages();
+    // Start polling for new messages while this screen is open
+    _pollTimer = Timer.periodic(const Duration(seconds: 3), (_) async {
+      final currentUser = context.read<AuthProvider>().currentUser;
+      if (currentUser == null) return;
+      await context.read<ChatProvider>().loadMessagesBetweenUsers(
+        currentUser.id,
+        widget.otherUserId,
+      );
+      // scroll to bottom after polling
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _scrollToBottom();
+      });
+    });
   }
 
   @override
   void dispose() {
+    _pollTimer?.cancel();
     _messageController.dispose();
     _scrollController.dispose();
     super.dispose();
@@ -144,19 +162,36 @@ class _ChatScreenState extends State<ChatScreen> {
         ),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
-          onPressed: () => context.pop(),
+          onPressed: () {
+            final router = GoRouter.of(context);
+            if (router.canPop()) {
+              router.pop();
+              return;
+            }
+
+            // Fallback: navigate to the appropriate dashboard
+            final currentUser = context.read<AuthProvider>().currentUser;
+            if (currentUser != null) {
+              switch (currentUser.userType) {
+                case UserType.student:
+                  context.go('/dashboard/student');
+                  break;
+                case UserType.trainer:
+                  context.go('/dashboard/trainer');
+                  break;
+                case UserType.admin:
+                  context.go('/dashboard/admin');
+                  break;
+              }
+            } else {
+              context.go('/');
+            }
+          },
         ),
         actions: [
           PopupMenuButton<String>(
             onSelected: (value) {
-              switch (value) {
-                case 'clear':
-                  _showClearChatDialog();
-                  break;
-                case 'block':
-                  _showBlockUserDialog();
-                  break;
-              }
+              if (value == 'clear') _showClearChatDialog();
             },
             itemBuilder: (context) => [
               const PopupMenuItem(
@@ -164,13 +199,6 @@ class _ChatScreenState extends State<ChatScreen> {
                 child: ListTile(
                   leading: Icon(Icons.clear_all),
                   title: Text('Limpar Conversa'),
-                ),
-              ),
-              const PopupMenuItem(
-                value: 'block',
-                child: ListTile(
-                  leading: Icon(Icons.block),
-                  title: Text('Bloquear Usuário'),
                 ),
               ),
             ],
@@ -402,15 +430,33 @@ class _ChatScreenState extends State<ChatScreen> {
             child: const Text('Cancelar'),
           ),
           ElevatedButton(
-            onPressed: () {
+            onPressed: () async {
               Navigator.pop(context);
-              // In a real app, this would clear the conversation
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Conversa limpa'),
-                  backgroundColor: Colors.orange,
-                ),
-              );
+              final currentUser = context.read<AuthProvider>().currentUser;
+              if (currentUser == null) return;
+
+              // Delete conversation only locally for this user (do not remove messages for the other user)
+              final success = await context.read<ChatProvider>().deleteConversation(currentUser.id, widget.otherUserId, localOnly: true);
+
+              // Ensure local messages cleared
+              context.read<ChatProvider>().clearMessages();
+
+              if (!mounted) return;
+              if (success) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Conversa limpa localmente'),
+                    backgroundColor: Colors.orange,
+                  ),
+                );
+              } else {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Erro ao limpar conversa'),
+                    backgroundColor: Colors.red,
+                  ),
+                );
+              }
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.red,
@@ -423,42 +469,7 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  void _showBlockUserDialog() {
-    final otherUser = context.read<ChatProvider>().getUserById(widget.otherUserId);
-    final otherUserName = otherUser?.name ?? 'Usuário';
-
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Bloquear Usuário'),
-        content: Text('Tem certeza que deseja bloquear $otherUserName? Vocês não poderão mais trocar mensagens.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancelar'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.pop(context);
-              // In a real app, this would block the user
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('$otherUserName foi bloqueado'),
-                  backgroundColor: Colors.red,
-                ),
-              );
-              context.pop(); // Go back to previous screen
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red,
-              foregroundColor: Colors.white,
-            ),
-            child: const Text('Bloquear'),
-          ),
-        ],
-      ),
-    );
-  }
+  
 
   bool _isSameDay(DateTime date1, DateTime date2) {
     return date1.year == date2.year &&

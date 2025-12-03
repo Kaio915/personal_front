@@ -28,7 +28,8 @@ class TrainerService {
             name: json['full_name'] as String? ?? 'Personal Trainer',
             userType: userType,
             approved: json['approved'] as bool? ?? false,
-            // Campos específicos de trainer viriam aqui se existissem
+            averageRating: json['average_rating'] != null ? (json['average_rating'] as num).toDouble() : null,
+            ratingCount: json['rating_count'] as int?,
           );
         }).toList();
       } else {

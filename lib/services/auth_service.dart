@@ -243,6 +243,10 @@ class AuthService {
           name: userData['full_name'] as String? ?? 'Usuário',
           userType: userType,
           approved: userData['approved'] as bool? ?? false,
+          goals: userData['goals'] as String? ?? '',
+          fitnessLevel: userData['fitnessLevel'] as String? ?? '',
+          bio: userData['bio'] as String? ?? '',
+          city: userData['city'] as String? ?? '',
         );
       }
       

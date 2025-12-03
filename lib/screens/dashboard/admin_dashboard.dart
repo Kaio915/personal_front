@@ -311,12 +311,7 @@ class _AdminDashboardState extends State<AdminDashboard>
                 padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
                 child: Row(
                   children: [
-                    IconButton(
-                      icon: const Icon(Icons.arrow_back, size: 24),
-                      onPressed: () => context.go('/'),
-                      tooltip: 'Voltar',
-                    ),
-                    const SizedBox(width: 12),
+                    // Back button removed per UX request; only 'Sair' remains
                     Container(
                       padding: const EdgeInsets.all(8),
                       decoration: BoxDecoration(

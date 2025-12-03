@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
+import 'dart:async';
 import '../../providers/auth_provider.dart';
 import '../../providers/chat_provider.dart';
 import '../../services/connection_service.dart';
@@ -20,11 +21,13 @@ class _TrainerDashboardState extends State<TrainerDashboard> with TickerProvider
   List<ConnectionModel> _acceptedConnections = [];
   bool _isLoadingConnections = false;
   Map<int, Map<String, String>> _studentInfo = {}; // Cache student info
+  Timer? _notifyPollTimer;
+  Map<int, int> _lastUnreadCounts = {};
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+  _tabController = TabController(length: 2, vsync: this);
     
     // Adicionar listener para recarregar quando mudar de aba
     _tabController.addListener(() {
@@ -41,9 +44,47 @@ class _TrainerDashboardState extends State<TrainerDashboard> with TickerProvider
       final user = context.read<AuthProvider>().currentUser;
       if (user != null) {
         context.read<ChatProvider>().initialize(user.id);
+        // Start provider-managed unread polling
+        context.read<ChatProvider>().startUnreadPolling(user.id);
         _loadConnections();
+        // Start a lightweight polling to check unread messages and notify
+        _notifyPollTimer = Timer.periodic(const Duration(seconds: 6), (_) async {
+          await _checkForUnreadNotificationsTrainer();
+        });
       }
     });
+  }
+
+  Future<void> _checkForUnreadNotificationsTrainer() async {
+    final currentUser = context.read<AuthProvider>().currentUser;
+    if (currentUser == null) return;
+
+    final chatProvider = context.read<ChatProvider>();
+    final trainerId = currentUser.id;
+
+    for (var conn in _acceptedConnections) {
+      final otherId = conn.studentId.toString();
+      try {
+        final count = await chatProvider.getUnreadMessageCountBetweenUsers(trainerId, otherId);
+        final hadPrev = _lastUnreadCounts.containsKey(conn.studentId);
+        final prev = _lastUnreadCounts[conn.studentId] ?? 0;
+        print('🔔 Trainer unread check for ${conn.studentId}: prev=$prev, now=$count (hadPrev=$hadPrev)');
+        if (!hadPrev) {
+          _lastUnreadCounts[conn.studentId] = count;
+        } else if (count > prev) {
+          final name = _studentInfo[conn.studentId]?['name'] ?? 'Aluno';
+          print('🔔 Trainer notifying new messages from $name (${conn.studentId}): $count > $prev');
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Nova mensagem de $name')),
+            );
+          }
+          _lastUnreadCounts[conn.studentId] = count;
+        }
+      } catch (e) {
+        // ignore
+      }
+    }
   }
 
   Future<void> _loadConnections() async {
@@ -80,6 +121,10 @@ class _TrainerDashboardState extends State<TrainerDashboard> with TickerProvider
               _studentInfo[conn.studentId] = {
                 'name': student.name,
                 'email': student.email,
+                'goals': student.goals ?? '',
+                'fitnessLevel': student.fitnessLevel ?? '',
+                'bio': student.bio ?? '',
+                'city': student.city ?? '',
               };
               print('👤 Info do aluno ${conn.studentId} carregada: ${student.name}');
             }
@@ -107,6 +152,9 @@ class _TrainerDashboardState extends State<TrainerDashboard> with TickerProvider
   @override
   void dispose() {
     _tabController.dispose();
+    _notifyPollTimer?.cancel();
+    // Stop provider unread polling
+    context.read<ChatProvider>().stopUnreadPolling();
     super.dispose();
   }
 
@@ -114,76 +162,164 @@ class _TrainerDashboardState extends State<TrainerDashboard> with TickerProvider
   Widget build(BuildContext context) {
     final user = context.watch<AuthProvider>().currentUser;
     
-    return Scaffold(
-      appBar: AppBar(
-        title: Text('Olá, ${user?.name ?? 'Personal'}'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.notifications_outlined),
-            onPressed: () {
-              // TODO: Show notifications
-            },
-          ),
-          PopupMenuButton<String>(
-            onSelected: (value) async {
-              switch (value) {
-                case 'profile':
-                  // TODO: Navigate to profile
-                  break;
-                case 'settings':
-                  // TODO: Navigate to settings
-                  break;
-                case 'logout':
+    return WillPopScope(
+      onWillPop: () async => false,
+      child: Scaffold(
+        appBar: AppBar(
+          automaticallyImplyLeading: false,
+          title: Text('Olá, ${user?.name ?? 'Personal'}'),
+          actions: [
+            Consumer<ChatProvider>(
+              builder: (context, chatProvider, child) {
+                final total = chatProvider.totalUnreadCount;
+                return Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.notifications_outlined),
+                      onPressed: () => _showNotificationsSheet(),
+                    ),
+                    if (total > 0)
+                      Positioned(
+                        right: 10,
+                        top: 10,
+                        child: Container(
+                          padding: const EdgeInsets.all(2),
+                          decoration: BoxDecoration(
+                            color: Colors.red,
+                            shape: BoxShape.circle,
+                          ),
+                          constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+                          child: Center(
+                            child: Text(
+                              total > 99 ? '99+' : total.toString(),
+                              style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                );
+              },
+            ),
+            PopupMenuButton<String>(
+              onSelected: (value) async {
+                if (value == 'logout') {
                   await context.read<AuthProvider>().logout();
-                  if (mounted) {
-                    context.go('/');
-                  }
-                  break;
-              }
-            },
-            itemBuilder: (context) => [
-              const PopupMenuItem(
-                value: 'profile',
-                child: ListTile(
-                  leading: Icon(Icons.person_outline),
-                  title: Text('Perfil'),
+                  if (mounted) context.go('/');
+                }
+              },
+              itemBuilder: (context) => const [
+                PopupMenuItem(
+                  value: 'logout',
+                  child: ListTile(
+                    leading: Icon(Icons.logout),
+                    title: Text('Sair'),
+                  ),
+                ),
+              ],
+            ),
+          ],
+          bottom: TabBar(
+            controller: _tabController,
+            tabs: const [
+              Tab(icon: Icon(Icons.pending_actions), text: 'Solicitações'),
+              Tab(icon: Icon(Icons.people), text: 'Alunos'),
+              // Tab(icon: Icon(Icons.chat), text: 'Mensagens'),
+            ],
+          ),
+        ),
+        body: TabBarView(
+          controller: _tabController,
+          children: [
+            _buildRequestsTab(),
+            _buildStudentsTab(),
+            // _buildMessagesTab(),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showNotificationsSheet() {
+    final chatProvider = context.read<ChatProvider>();
+    final currentUser = context.read<AuthProvider>().currentUser;
+    if (currentUser == null) return;
+
+    showModalBottomSheet(
+      context: context,
+      builder: (context) {
+        // Build a list of unread conversations
+        final unreadMap = chatProvider.unreadCounts;
+        final unreadEntries = unreadMap.entries.where((e) => e.value > 0).toList();
+
+        if (unreadEntries.isEmpty) {
+          return SizedBox(
+            height: 200,
+            child: Center(
+              child: Text('Sem novas mensagens'),
+            ),
+          );
+        }
+
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(12.0),
+                child: Row(
+                  children: const [
+                    Icon(Icons.notifications),
+                    SizedBox(width: 8),
+                    Text('Notificações', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                  ],
                 ),
               ),
-              const PopupMenuItem(
-                value: 'settings',
-                child: ListTile(
-                  leading: Icon(Icons.settings_outlined),
-                  title: Text('Configurações'),
-                ),
-              ),
-              const PopupMenuDivider(),
-              const PopupMenuItem(
-                value: 'logout',
-                child: ListTile(
-                  leading: Icon(Icons.logout),
-                  title: Text('Sair'),
+              Flexible(
+                child: ListView.builder(
+                  shrinkWrap: true,
+                  itemCount: unreadEntries.length,
+                  itemBuilder: (context, index) {
+                    final otherId = unreadEntries[index].key;
+                    final count = unreadEntries[index].value;
+                    final userObj = chatProvider.getUserById(otherId);
+                    final name = userObj?.name ?? _studentInfo[int.tryParse(otherId) ?? 0]?['name'] ?? 'Usuário';
+
+                    return ListTile(
+                      leading: CircleAvatar(
+                        backgroundColor: Theme.of(context).colorScheme.secondary,
+                        child: Text(name.substring(0, 1).toUpperCase(), style: const TextStyle(color: Colors.white)),
+                      ),
+                      title: Text(name),
+                      subtitle: FutureBuilder(
+                        future: chatProvider.getLastMessage(currentUser.id, otherId),
+                        builder: (context, snapshot) {
+                          if (snapshot.connectionState == ConnectionState.waiting) return const Text('Carregando...');
+                          final last = snapshot.data;
+                          if (last == null) return const Text('Nova mensagem');
+                          return Text('${last.senderId == int.parse(currentUser.id) ? "Você: " : ""}${last.content}', maxLines: 1, overflow: TextOverflow.ellipsis);
+                        },
+                      ),
+                      trailing: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(color: Colors.red, borderRadius: BorderRadius.circular(12)),
+                        child: Text(count > 99 ? '99+' : count.toString(), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12)),
+                      ),
+                      onTap: () {
+                        // Close sheet and navigate to chat
+                        Navigator.pop(context);
+                        _notifyPollTimer?.cancel();
+                        Future.microtask(() => context.push('/chat/$otherId'));
+                      },
+                    );
+                  },
                 ),
               ),
             ],
           ),
-        ],
-        bottom: TabBar(
-          controller: _tabController,
-          tabs: const [
-            Tab(icon: Icon(Icons.pending_actions), text: 'Solicitações'),
-            Tab(icon: Icon(Icons.people), text: 'Alunos'),
-            Tab(icon: Icon(Icons.chat), text: 'Mensagens'),
-          ],
-        ),
-      ),
-      body: TabBarView(
-        controller: _tabController,
-        children: [
-          _buildRequestsTab(),
-          _buildStudentsTab(),
-          _buildMessagesTab(),
-        ],
-      ),
+        );
+      },
     );
   }
 
@@ -275,6 +411,20 @@ class _TrainerDashboardState extends State<TrainerDashboard> with TickerProvider
                             fontSize: 14,
                             color: Colors.grey.shade600,
                           ),
+                        ),
+                      const SizedBox(height: 6),
+                      // Exibir informações adicionais do aluno quando disponíveis
+                      if ((studentInfo?['goals'] ?? '').isNotEmpty)
+                        Text(
+                          'Objetivo: ${studentInfo?['goals']}',
+                          style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      if ((studentInfo?['fitnessLevel'] ?? '').isNotEmpty)
+                        Text(
+                          'Nível: ${studentInfo?['fitnessLevel']}',
+                          style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
                         ),
                       Text(
                         'Solicitação pendente',
@@ -517,12 +667,44 @@ class _TrainerDashboardState extends State<TrainerDashboard> with TickerProvider
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            IconButton(
-              icon: const Icon(Icons.chat_outlined),
-              onPressed: () {
-                context.go('/chat/${connection.studentId}');
+            Consumer<ChatProvider>(
+              builder: (context, chatProvider, child) {
+                final unread = chatProvider.unreadCounts[connection.studentId.toString()] ?? 0;
+                return Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.chat_outlined),
+                      onPressed: () {
+                        print('🧭 TrainerDashboard: chat button pressed for student ${connection.studentId}');
+                        // Cancel notify polling to avoid conflicts
+                        _notifyPollTimer?.cancel();
+                        Future.microtask(() => context.push('/chat/${connection.studentId}'));
+                      },
+                      tooltip: 'Conversar',
+                    ),
+                    if (unread > 0)
+                      Positioned(
+                        right: 6,
+                        top: 6,
+                        child: Container(
+                          padding: const EdgeInsets.all(4),
+                          decoration: BoxDecoration(
+                            color: Colors.red,
+                            shape: BoxShape.circle,
+                          ),
+                          constraints: const BoxConstraints(minWidth: 20, minHeight: 20),
+                          child: Center(
+                            child: Text(
+                              unread > 99 ? '99+' : unread.toString(),
+                              style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                );
               },
-              tooltip: 'Conversar',
             ),
             PopupMenuButton<String>(
               onSelected: (value) {
@@ -545,7 +727,10 @@ class _TrainerDashboardState extends State<TrainerDashboard> with TickerProvider
           ],
         ),
         onTap: () {
-          context.go('/chat/${connection.studentId}');
+          print('🧭 TrainerDashboard: tapped student ${connection.studentId}');
+          // Cancel polling to avoid conflicts
+          _notifyPollTimer?.cancel();
+          Future.microtask(() => context.push('/chat/${connection.studentId}'));
         },
       ),
     );
@@ -622,75 +807,5 @@ class _TrainerDashboardState extends State<TrainerDashboard> with TickerProvider
     }
   }
 
-  Widget _buildMessagesTab() {
-    return Consumer<ChatProvider>(
-      builder: (context, chatProvider, child) {
-        if (chatProvider.isLoading) {
-          return const Center(child: CircularProgressIndicator());
-        }
-
-        final currentUser = context.read<AuthProvider>().currentUser;
-        if (currentUser == null) {
-          return const Center(child: Text('Usuário não encontrado'));
-        }
-
-        // Get conversations with details
-        final conversationsWithDetails = chatProvider.getConversationsWithDetails(currentUser.id);
-
-        if (conversationsWithDetails.isEmpty) {
-          return const Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(Icons.chat_outlined, size: 64, color: Colors.grey),
-                SizedBox(height: 16),
-                Text(
-                  'Nenhuma conversa ainda',
-                  style: TextStyle(fontSize: 18, color: Colors.grey),
-                ),
-                SizedBox(height: 8),
-                Text(
-                  'Aceite conexões com alunos e comece a conversar!',
-                  style: TextStyle(color: Colors.grey),
-                  textAlign: TextAlign.center,
-                ),
-              ],
-            ),
-          );
-        }
-
-        return ListView.builder(
-          padding: const EdgeInsets.all(16),
-          itemCount: conversationsWithDetails.length,
-          itemBuilder: (context, index) {
-            final conversation = conversationsWithDetails[index];
-            final user = conversation['user'];
-            final userId = conversation['userId'];
-            
-            return Card(
-              margin: const EdgeInsets.only(bottom: 8),
-              child: ListTile(
-                leading: CircleAvatar(
-                  backgroundColor: Theme.of(context).colorScheme.secondary,
-                  child: Text(
-                    user?.name?.substring(0, 1).toUpperCase() ?? 'A',
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
-                    ),
-                  ),
-                ),
-                title: Text(user?.name ?? 'Aluno'),
-                subtitle: const Text('Toque para conversar'),
-                trailing: const Icon(Icons.arrow_forward_ios),
-                onTap: () {
-                  context.go('/chat/$userId');
-                },
-              ),
-            );
-          },
-        );
-      },
-    );
-  }
+  
 }

@@ -1,0 +1,44 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Run Backend",
+      "type": "shell",
+      "command": "python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload",
+      "options": {
+        "cwd": "${workspaceFolder}/../personal_api"
+      },
+      "presentation": {
+        "panel": "dedicated",
+        "clear": false
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Run Frontend",
+      "type": "shell",
+      "command": "flutter pub get; flutter run -d web-server --web-hostname=0.0.0.0 --web-port 5000",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "presentation": {
+        "panel": "dedicated",
+        "clear": false
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Run Both",
+      "type": "shell",
+      "dependsOn": ["Run Backend", "Run Frontend"],
+      "presentation": {
+        "panel": "shared",
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "showReuseMessage": true,
+        "clear": false
+      }
+    }
+  ]
+}

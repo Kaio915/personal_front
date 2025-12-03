@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'dart:async';
 import '../models/message.dart';
 import '../models/user.dart';
 import '../services/chat_service.dart';
@@ -11,12 +12,19 @@ class ChatProvider with ChangeNotifier {
   List<Message> _messages = [];
   List<String> _conversations = [];
   Map<String, User> _users = {};
+  Map<String, int> _unreadCounts = {};
+  // Track conversations that were locally cleared (so they remain listed)
+  Map<String, bool> _locallyCleared = {};
+  Timer? _unreadPollTimer;
   bool _isLoading = false;
   String? _errorMessage;
 
   List<Message> get messages => _messages;
   List<String> get conversations => _conversations;
   Map<String, User> get users => _users;
+  Map<String, int> get unreadCounts => _unreadCounts;
+  Map<String, bool> get locallyCleared => _locallyCleared;
+  int get totalUnreadCount => _unreadCounts.values.fold(0, (a, b) => a + b);
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
 
@@ -33,6 +41,8 @@ class ChatProvider with ChangeNotifier {
 
     try {
       _conversations = await _chatService.getConversations(userId);
+      // Ensure we have user details for each conversation participant.
+      await _fetchMissingUsersForConversations();
       _errorMessage = null;
     } catch (e) {
       _errorMessage = 'Erro ao carregar conversas: $e';
@@ -42,11 +52,37 @@ class ChatProvider with ChangeNotifier {
     }
   }
 
+  // Fetch from API any users that are referenced in conversations but missing locally
+  Future<void> _fetchMissingUsersForConversations() async {
+    try {
+      for (final userId in _conversations) {
+        if (!_users.containsKey(userId)) {
+          // AuthService.getUserById expects an int
+          final intId = int.tryParse(userId);
+          if (intId == null) continue;
+          final fetched = await _authService.getUserById(intId);
+          if (fetched != null) {
+            _users[userId] = fetched;
+          }
+        }
+      }
+    } catch (e) {
+      // non-fatal: just set error message and continue
+      _errorMessage = 'Erro ao obter dados de usuários: $e';
+    }
+  }
+
   // Load all users for user lookup
   Future<void> loadUsers() async {
     try {
       final usersList = await _authService.getUsers();
-      _users = {for (var user in usersList) user.id: user};
+      // Merge fetched users into existing map to avoid removing users
+      // that were retrieved from the API via _fetchMissingUsersForConversations.
+      final fetchedMap = {for (var user in usersList) user.id: user};
+      _users = {
+        ..._users, // keep previously fetched users
+        ...fetchedMap,
+      };
       notifyListeners();
     } catch (e) {
       _errorMessage = 'Erro ao carregar usuários: $e';
@@ -65,11 +101,43 @@ class ChatProvider with ChangeNotifier {
       
       // Mark messages as read
       await _chatService.markMessagesAsRead(userId2, userId1);
+      // Update local unread counts cache for this conversation
+      _unreadCounts[userId2] = 0;
     } catch (e) {
       _errorMessage = 'Erro ao carregar mensagens: $e';
     } finally {
       _isLoading = false;
       notifyListeners();
+    }
+  }
+
+  // Start polling unread counts for the current user
+  void startUnreadPolling(String currentUserId, {Duration interval = const Duration(seconds: 5)}) {
+    _unreadPollTimer?.cancel();
+    // Run immediately once
+    _pollUnreadCounts(currentUserId);
+    _unreadPollTimer = Timer.periodic(interval, (_) {
+      _pollUnreadCounts(currentUserId);
+    });
+  }
+
+  // Stop polling unread counts
+  void stopUnreadPolling() {
+    _unreadPollTimer?.cancel();
+    _unreadPollTimer = null;
+  }
+
+  Future<void> _pollUnreadCounts(String currentUserId) async {
+    try {
+      // Ensure conversations are up-to-date
+      await loadConversations(currentUserId);
+      for (final otherId in _conversations) {
+        final count = await getUnreadMessageCountBetweenUsers(currentUserId, otherId);
+        _unreadCounts[otherId] = count;
+      }
+      notifyListeners();
+    } catch (e) {
+      // ignore polling errors
     }
   }
 
@@ -89,6 +157,8 @@ class ChatProvider with ChangeNotifier {
       );
       
       if (success) {
+        // If the conversation was locally cleared, restore it when sending a new message
+        _locallyCleared[receiverId] = false;
         // Reload messages to show the new message
         await loadMessagesBetweenUsers(senderId, receiverId);
         _errorMessage = null;
@@ -132,9 +202,22 @@ class ChatProvider with ChangeNotifier {
     }
   }
 
-  // Delete conversation
-  Future<bool> deleteConversation(String userId1, String userId2) async {
+  // Delete conversation. If localOnly is true, only remove it locally for this user
+  Future<bool> deleteConversation(String userId1, String userId2, {bool localOnly = false}) async {
     try {
+      if (localOnly) {
+        // Remove messages locally and remove conversation from local list
+        _messages = [];
+        // Do NOT remove the conversation entry — keep it visible in the list
+        // Mark this conversation as locally cleared so UI can reflect empty state
+        _locallyCleared[userId2] = true;
+        // Clear unread count for that conversation
+        _unreadCounts[userId2] = 0;
+        _errorMessage = null;
+        notifyListeners();
+        return true;
+      }
+
       final success = await _chatService.deleteConversation(userId1, userId2);
       
       if (success) {

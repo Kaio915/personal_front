@@ -19,23 +19,32 @@ class ChatService {
   }) async {
     try {
       print('💬 Sending message from $senderId to $receiverId');
-      
+
       final token = await _getToken();
+      print('🔐 Token present: ${token != null}');
       if (token == null) {
         print('❌ No token found');
         return false;
       }
-      
+
+      final body = {
+        'receiver_id': int.parse(receiverId),
+        'content': content,
+      };
+
+      print('📤 POST /messages/ body: $body');
+
       final response = await ApiService.post(
         '/messages/',
-        body: {
-          'receiver_id': int.parse(receiverId),
-          'content': content,
-        },
+        body: body,
         token: token,
       );
 
-      print('✅ Message sent successfully: ${response.statusCode}');
+      print('📥 Response status: ${response.statusCode}');
+      try {
+        print('📦 Response body: ${response.body}');
+      } catch (_) {}
+
       return response.statusCode == 200;
     } catch (e) {
       print('❌ Error sending message: $e');
@@ -47,25 +56,31 @@ class ChatService {
   Future<List<Message>> getMessagesBetweenUsers(String userId1, String userId2) async {
     try {
       print('📥 Loading messages between $userId1 and $userId2');
-      
+
       final token = await _getToken();
+      print('🔐 Token present: ${token != null}');
       if (token == null) {
         print('❌ No token found');
         return [];
       }
-      
+
       final response = await ApiService.get(
         '/messages/conversation/$userId2',
         token: token,
       );
-      
+
+      print('📥 Response status: ${response.statusCode}');
+      try {
+        print('📦 Response body: ${response.body}');
+      } catch (_) {}
+
       if (response.statusCode == 200) {
         final List<dynamic> data = json.decode(response.body);
         final messages = data.map((json) => Message.fromJson(json)).toList();
         print('✅ Loaded ${messages.length} messages');
         return messages;
       }
-      
+
       print('❌ Failed to load messages: ${response.statusCode}');
       return [];
     } catch (e) {
@@ -138,13 +153,17 @@ class ChatService {
   // Get unread message count for a user
   Future<int> getUnreadMessageCount(String userId) async {
     try {
+      print('🔎 getUnreadMessageCount for $userId');
       final token = await _getToken();
+      print('🔐 Token present: ${token != null}');
       if (token == null) return 0;
       
       final response = await ApiService.get(
         '/messages/unread/count',
         token: token,
       );
+      print('📥 Unread count response status: ${response.statusCode}');
+      try { print('📦 Unread count response body: ${response.body}'); } catch (_) {}
       
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
@@ -161,13 +180,17 @@ class ChatService {
   // Get unread message count between two specific users
   Future<int> getUnreadMessageCountBetweenUsers(String currentUserId, String otherUserId) async {
     try {
+      print('🔎 getUnreadMessageCountBetweenUsers: current=$currentUserId other=$otherUserId');
       final token = await _getToken();
+      print('🔐 Token present: ${token != null}');
       if (token == null) return 0;
       
       final response = await ApiService.get(
         '/messages/unread/count/$otherUserId',
         token: token,
       );
+      print('📥 Unread count between response status: ${response.statusCode}');
+      try { print('📦 Unread count between response body: ${response.body}'); } catch (_) {}
       
       if (response.statusCode == 200) {
         final data = json.decode(response.body);

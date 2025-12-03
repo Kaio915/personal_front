@@ -40,6 +40,9 @@ class User {
   // Student specific fields
   final String? goals;
   final String? fitnessLevel;
+  // Rating info (average from students)
+  final double? averageRating;
+  final int? ratingCount;
 
   const User({
     required this.id,
@@ -55,6 +58,8 @@ class User {
     this.city,
     this.goals,
     this.fitnessLevel,
+    this.averageRating,
+    this.ratingCount,
   });
 
   factory User.fromJson(Map<String, dynamic> json) {
@@ -72,6 +77,8 @@ class User {
       city: json['city'] as String?,
       goals: json['goals'] as String?,
       fitnessLevel: json['fitnessLevel'] as String?,
+      averageRating: (json['average_rating'] is num) ? (json['average_rating'] as num).toDouble() : null,
+      ratingCount: json['rating_count'] as int?,
     );
   }
 
@@ -107,6 +114,8 @@ class User {
     String? city,
     String? goals,
     String? fitnessLevel,
+    double? averageRating,
+    int? ratingCount,
   }) {
     return User(
       id: id ?? this.id,
@@ -122,6 +131,8 @@ class User {
       city: city ?? this.city,
       goals: goals ?? this.goals,
       fitnessLevel: fitnessLevel ?? this.fitnessLevel,
+      averageRating: averageRating ?? this.averageRating,
+      ratingCount: ratingCount ?? this.ratingCount,
     );
   }
 
