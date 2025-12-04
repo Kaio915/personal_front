@@ -5,8 +5,10 @@ import 'dart:html' as html;
 class Config {
   // URLs da API
   static const String productionApiUrl =
-      'https://personal-api-a5n6.onrender.com';
+      'https://personal-api-1-qkog.onrender.com';
   static const String developmentApiUrl = 'http://127.0.0.1:8000';
+    // Production front URL to detect hosting environment
+    static const String productionFrontUrl = 'https://personal-front-2.onrender.com';
 
   // URL atual baseada na URL do navegador
   static String get apiUrl {
@@ -14,13 +16,17 @@ class Config {
     if (kIsWeb) {
       final currentUrl = html.window.location.href;
 
-      // Se a URL contém localhost ou 127.0.0.1, usa desenvolvimento
-      if (currentUrl.contains('localhost') ||
-          currentUrl.contains('127.0.0.1')) {
+      // If running from the known production front URL, use production backend
+      if (currentUrl.contains(productionFrontUrl)) {
+        return productionApiUrl;
+      }
+
+      // If the URL contains localhost or 127.0.0.1, use development backend
+      if (currentUrl.contains('localhost') || currentUrl.contains('127.0.0.1')) {
         return developmentApiUrl;
       }
 
-      // Caso contrário, usa produção
+      // Default to production API URL when not explicitly local
       return productionApiUrl;
     }
 
